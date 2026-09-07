@@ -18,204 +18,23 @@ jobs:
           ref: chore/lock-database-identity
           fetch-depth: 0
 
-      - name: Sanitize project snapshot and lock database identity
-        shell: bash
+      - name: Sanitize archive
+        run: python3 scripts/one-time-db-identity-cleanup.py
+
+      - name: Validate JavaScript identity guards
         run: |
-          set -euo pipefail
-          CANONICAL_REF='scpovyrqmsbiduanykod'
-          CANONICAL_URL="https://${CANONICAL_REF}.supabase.co"
-          OLD_REF_1='azzdesuowpdcoflmyezn'
-          OLD_REF_2='lwnsdsncmlsroiswgoga'
-          TMP_DIR='.tmp-db-identity-cleanup'
-
-          rm -rf "$TMP_DIR"
-          mkdir -p "$TMP_DIR"
-          unzip -q johna-s.zip -d "$TMP_DIR"
-
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-
-          root = Path('.tmp-db-identity-cleanup')
-          canonical = 'scpovyrqmsbiduanykod'
-          old_refs = ('azzdesuowpdcoflmyezn', 'lwnsdsncmlsroiswgoga')
-          historical_docs = {
-              'docs/MASTER_LOG2.md',
-              'docs/P0_STOCK_VALUATION_PRODUCTION_REPORT.md',
-              'docs/ERP-01_REPORT.md',
-              'docs/ERP-01_EXECUTION_PLAN.md',
-          }
-
-          for path in root.rglob('*'):
-              if not path.is_file():
-                  continue
-              try:
-                  text = path.read_text(encoding='utf-8')
-              except (UnicodeDecodeError, OSError):
-                  continue
-              rel = path.relative_to(root).as_posix()
-              if not any(ref in text for ref in old_refs):
-                  continue
-              replacement = 'LEGACY_SUPABASE_PROJECT_REMOVED' if rel in historical_docs else canonical
-              for ref in old_refs:
-                  text = text.replace(ref, replacement)
-              path.write_text(text, encoding='utf-8')
-
-          lock = root / 'docs/DATABASE_IDENTITY_LOCK.md'
-          lock.parent.mkdir(parents=True, exist_ok=True)
-          lock.write_text(f'''# Database Identity Lock — Premieros/55
-
-## Canonical project identity
-
-This repository is bound to exactly one Supabase project unless the user explicitly approves a database migration:
-
-- Repository: `Premieros/55`
-- Supabase project ref: `{canonical}`
-- Supabase project URL: `https://{canonical}.supabase.co`
-
-## Non-negotiable rule
-
-Application code, CI/deployment workflows, tests, environment files and operational database scripts must not point to any other remote Supabase project. Any other remote project ref or URL is a hard failure.
-
-Localhost/127.0.0.1 database URLs remain allowed only for isolated local/CI tests.
-
-## Enforcement
-
-`scripts/db/verify-database-identity.js` enforces the canonical identity and rejects a different `SUPABASE_PROJECT_REF`, `VITE_SUPABASE_URL`, or remote `SUPABASE_DB_URL`.
-
-## Change control
-
-Changing the database identity requires an explicit user instruction and coordinated updates to this lock, CI/deployment configuration, tests and migration tooling.
-''', encoding='utf-8')
-
-          verifier = root / 'scripts/db/verify-database-identity.js'
-          verifier.write_text(f'''const EXPECTED_PROJECT_REF = '{canonical}'
-const EXPECTED_URL = `https://${{EXPECTED_PROJECT_REF}}.supabase.co`
-
-const configuredRef = (process.env.SUPABASE_PROJECT_REF || EXPECTED_PROJECT_REF).trim()
-const configuredUrl = (process.env.VITE_SUPABASE_URL || EXPECTED_URL).trim().replace(/\\\/$/, '')
-
-function fail(message) {{
-  console.error(`DATABASE_IDENTITY_LOCK_FAILED: ${{message}}`)
-  process.exit(1)
-}}
-
-if (configuredRef !== EXPECTED_PROJECT_REF) {{
-  fail(`SUPABASE_PROJECT_REF must be ${{EXPECTED_PROJECT_REF}}, received ${{configuredRef || '<empty>'}}`)
-}}
-
-let parsed
-try {{
-  parsed = new URL(configuredUrl)
-}} catch {{
-  fail('VITE_SUPABASE_URL is not a valid URL')
-}}
-
-if (parsed.protocol !== 'https:' || parsed.hostname !== `${{EXPECTED_PROJECT_REF}}.supabase.co`) {{
-  fail(`VITE_SUPABASE_URL must be ${{EXPECTED_URL}}`)
-}}
-
-const dbUrl = (process.env.SUPABASE_DB_URL || '').trim()
-if (dbUrl && !/localhost|127\\.0\\.0\\.1/.test(dbUrl)) {{
-  let dbHost = ''
-  try {{
-    dbHost = new URL(dbUrl).hostname
-  }} catch {{
-    fail('SUPABASE_DB_URL is not a valid database URL')
-  }}
-  const directHost = `db.${{EXPECTED_PROJECT_REF}}.supabase.co`
-  const isDirect = dbHost === directHost
-  const isPooler = dbHost.endsWith('.pooler.supabase.com') && dbUrl.includes(EXPECTED_PROJECT_REF)
-  if (!isDirect && !isPooler) {{
-    fail(`SUPABASE_DB_URL does not belong to ${{EXPECTED_PROJECT_REF}}`)
-  }}
-}}
-
-console.log(`Database identity verified: ${{EXPECTED_PROJECT_REF}}`)
-''', encoding='utf-8')
-
-          migrate = root / 'scripts/db/migrate-target-db.mjs'
-          if migrate.exists():
-              text = migrate.read_text(encoding='utf-8')
-              text, count = re.subn(
-                  r"const DB_URL = process\.env\.SUPABASE_DB_URL \|\| '[^']+';",
-                  "const DB_URL = (process.env.SUPABASE_DB_URL || '').trim();\n"
-                  "if (!DB_URL) {\n"
-                  "  throw new Error('SUPABASE_DB_URL is required; no database credential may be embedded in source code.');\n"
-                  "}\n"
-                  f"if (!DB_URL.includes('{canonical}') && !/localhost|127\\.0\\.0\\.1/.test(DB_URL)) {{\n"
-                  f"  throw new Error('SUPABASE_DB_URL does not belong to the locked Supabase project {canonical}.');\n"
-                  "}",
-                  text,
-                  count=1,
-              )
-              if count != 1:
-                  raise SystemExit('Expected hard-coded SUPABASE_DB_URL fallback was not found exactly once')
-              migrate.write_text(text, encoding='utf-8')
-
-          env_example = root / '.env.example'
-          if env_example.exists():
-              env_example.write_text(
-                  f'SUPABASE_PROJECT_REF={canonical}\n'
-                  f'VITE_SUPABASE_URL=https://{canonical}.supabase.co\n'
-                  'VITE_SUPABASE_ANON_KEY=\n'
-                  'SUPABASE_DB_URL=\n',
-                  encoding='utf-8',
-              )
-
-          remaining = []
-          refs = set()
-          ref_pattern = re.compile(r'(?:https://|db\.)([a-z0-9]{20})\.supabase\.co', re.I)
-          leaked_password_marker = '17vgWFWzH0vsptOo'
-          for path in root.rglob('*'):
-              if not path.is_file():
-                  continue
-              try:
-                  text = path.read_text(encoding='utf-8')
-              except (UnicodeDecodeError, OSError):
-                  continue
-              if any(ref in text for ref in old_refs):
-                  remaining.append(path.relative_to(root).as_posix())
-              if leaked_password_marker in text:
-                  raise SystemExit(f'Embedded database password marker remains in {path}')
-              refs.update(m.group(1) for m in ref_pattern.finditer(text))
-
-          if remaining:
-              raise SystemExit('Obsolete Supabase refs remain in: ' + ', '.join(remaining))
-          if refs != {canonical}:
-              raise SystemExit(f'Unexpected Supabase project refs remain: {sorted(refs)}')
-          print(f'Database identity cleanup verified: only {canonical} remains')
-          PY
-
-          node --check "$TMP_DIR/scripts/db/verify-database-identity.js"
-          node --check "$TMP_DIR/scripts/db/migrate-target-db.mjs"
-
-          rm -f johna-s.zip
-          (cd "$TMP_DIR" && zip -qr ../johna-s.zip .)
-          rm -rf "$TMP_DIR"
-
-          cat > .env.example <<EOF
-          SUPABASE_PROJECT_REF=${CANONICAL_REF}
-          VITE_SUPABASE_URL=${CANONICAL_URL}
-          VITE_SUPABASE_ANON_KEY=
-          SUPABASE_DB_URL=
-          EOF
-
-          cat > DATABASE_IDENTITY_LOCK.md <<EOF
-          # Database Identity Lock — Premieros/55
-
-          The only approved Supabase project for this repository is:
-
-          - Project ref: \`${CANONICAL_REF}\`
-          - Project URL: \`${CANONICAL_URL}\`
-
-          Any other remote Supabase project reference is prohibited. Localhost/127.0.0.1 may be used only for isolated tests.
-          EOF
-
+          rm -rf .verify-db-lock
+          mkdir -p .verify-db-lock
+          unzip -q johna-s.zip -d .verify-db-lock
+          node --check .verify-db-lock/scripts/db/verify-database-identity.js
+          node --check .verify-db-lock/scripts/db/migrate-target-db.mjs
+          rm -rf .verify-db-lock
           unzip -tq johna-s.zip
 
-          # This workflow is intentionally one-time; remove it from the final branch tree.
+      - name: Commit sanitized project snapshot
+        run: |
           git rm .github/workflows/one-time-db-identity-cleanup.yml
+          git rm scripts/one-time-db-identity-cleanup.py
           git add johna-s.zip .env.example DATABASE_IDENTITY_LOCK.md
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
