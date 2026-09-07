@@ -39,7 +39,9 @@ jobs:
 
       - name: Install dependencies
         working-directory: app
-        run: npm install --legacy-peer-deps --no-audit --no-fund
+        run: |
+          npm install --legacy-peer-deps --no-audit --no-fund
+          npm install --legacy-peer-deps --no-save --no-audit --no-fund react-is@18.3.1
 
       - name: Build Vite app
         working-directory: app
