@@ -28,9 +28,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: app/package-lock.json
-        continue-on-error: true
 
       - name: Extract uploaded project snapshot
         run: |
@@ -42,7 +39,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: app
-        run: npm install --no-audit --no-fund
+        run: npm install --legacy-peer-deps --no-audit --no-fund
 
       - name: Build Vite app
         working-directory: app
