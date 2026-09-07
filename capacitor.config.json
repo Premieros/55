@@ -1,0 +1,21 @@
+{
+  "appId": "com.johnspos.mobile",
+  "appName": "Johns POS",
+  "webDir": "dist",
+  "server": {
+    "url": "https://ais-pre-utf35dfbelzmbfjp7etxwq-287327909955.europe-west1.run.app",
+    "cleartext": true
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 1500,
+      "launchAutoHide": true,
+      "backgroundColor": "#0f172a"
+    }
+  },
+  "android": {
+    "allowMixedContent": true,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": false
+  }
+}
