@@ -74,7 +74,7 @@ verifier.write_text(
 const EXPECTED_URL = `https://${{EXPECTED_PROJECT_REF}}.supabase.co`
 
 const configuredRef = (process.env.SUPABASE_PROJECT_REF || EXPECTED_PROJECT_REF).trim()
-const configuredUrl = (process.env.VITE_SUPABASE_URL || EXPECTED_URL).trim().replace(/\\\/$/, '')
+const configuredUrl = (process.env.VITE_SUPABASE_URL || EXPECTED_URL).trim().replace(/\/$/, '')
 
 function fail(message) {{
   console.error(`DATABASE_IDENTITY_LOCK_FAILED: ${{message}}`)
