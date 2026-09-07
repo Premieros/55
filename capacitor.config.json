@@ -1,11 +1,7 @@
 {
-  "appId": "com.johnspos.mobile",
-  "appName": "Johns POS",
+  "appId": "com.premier.pos.mobile",
+  "appName": "Premier POS",
   "webDir": "dist",
-  "server": {
-    "url": "https://ais-pre-utf35dfbelzmbfjp7etxwq-287327909955.europe-west1.run.app",
-    "cleartext": true
-  },
   "plugins": {
     "SplashScreen": {
       "launchShowDuration": 1500,
@@ -14,7 +10,7 @@
     }
   },
   "android": {
-    "allowMixedContent": true,
+    "allowMixedContent": false,
     "captureInput": true,
     "webContentsDebuggingEnabled": false
   }

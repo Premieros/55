@@ -1,0 +1,56 @@
+name: Verify safe POS fixes
+
+on:
+  push:
+    branches: ["feature/desktop-mobile-printing"]
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/desktop-mobile-printing
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Extract project
+        run: |
+          rm -rf app
+          mkdir app
+          unzip -q johna-s.zip -d app
+      - name: Install
+        working-directory: app
+        run: npm install --legacy-peer-deps --no-audit --no-fund
+      - name: Verify database identity without connecting to database
+        working-directory: app
+        env:
+          SUPABASE_PROJECT_REF: scpovyrqmsbiduanykod
+          VITE_SUPABASE_URL: https://scpovyrqmsbiduanykod.supabase.co
+        run: npm run verify:db-identity
+      - name: Typecheck
+        working-directory: app
+        run: npm run typecheck
+      - name: Lint
+        working-directory: app
+        run: npm run lint
+      - name: Build
+        working-directory: app
+        env:
+          VITE_BASE_PATH: /55/
+          VITE_SUPABASE_URL: https://scpovyrqmsbiduanykod.supabase.co
+          VITE_SUPABASE_ANON_KEY: test-only-placeholder
+        run: npm run build
+      - name: Remove one-time verifier
+        if: success()
+        run: |
+          git rm .github/workflows/one-time-feature-verify.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'ci: safe POS fixes verified'
+          git push origin HEAD:feature/desktop-mobile-printing
