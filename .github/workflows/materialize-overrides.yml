@@ -1,0 +1,161 @@
+name: Materialize verified overrides
+
+on:
+  push:
+    branches: ["Premieros-patch-1-verify"]
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  materialize:
+    if: github.event.head_commit.message != 'chore: materialize verified overrides'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Extract original source
+        run: |
+          rm -rf app downloaded overrides
+          mkdir -p app downloaded overrides/src
+          unzip -q johna-s.zip -d app
+      - name: Download prior patched-source artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Premieros-patch-1-patched-source
+          path: downloaded
+          run-id: 34202562553
+          github-token: ${{ github.token }}
+      - name: Copy exact verified overrides
+        run: |
+          mkdir -p overrides/src/api/domains
+          mkdir -p overrides/src/features/manufacturing/pages
+          mkdir -p overrides/src/features/inventory/pages
+          mkdir -p overrides/src/features/trade/pages
+          cp downloaded/api/domains/inventory.ts overrides/src/api/domains/inventory.ts
+          cp downloaded/features/manufacturing/pages/RawMaterialsPage.tsx overrides/src/features/manufacturing/pages/RawMaterialsPage.tsx
+          cp downloaded/features/inventory/pages/InventoryPage.tsx overrides/src/features/inventory/pages/InventoryPage.tsx
+      - name: Patch purchases safely
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('app/src/features/trade/pages/PurchasesPage.tsx')
+          s=p.read_text()
+          repls=[]
+          repls.append((
+          "  const subtotal = useMemo(() => lineItems.reduce((s, i) => s + i.quantity * i.unit_cost, 0), [lineItems]);\n",
+          """  const subtotal = useMemo(() => lineItems.reduce((s, i) => s + i.quantity * i.unit_cost, 0), [lineItems]);
+
+          const branchWarehouses = useMemo(
+            () => warehouses.filter((warehouse) => !!form.branch_id && warehouse.branch_id === form.branch_id && warehouse.is_active !== false),
+            [warehouses, form.branch_id],
+          );
+          const branchSuppliers = useMemo(
+            () => suppliers.filter((supplier) => !form.branch_id || !supplier.branch_id || supplier.branch_id === form.branch_id),
+            [suppliers, form.branch_id],
+          );
+          const branchProducts = useMemo(
+            () => products.filter((product) => !form.branch_id || product.branch_id === form.branch_id),
+            [products, form.branch_id],
+          );
+          const branchRawMaterials = useMemo(
+            () => rawMaterials.filter((material) => !form.branch_id || material.branch_id === form.branch_id),
+            [rawMaterials, form.branch_id],
+          );
+
+          const changeBranch = (branchId: string) => {
+            const nextWarehouses = warehouses.filter((warehouse) => warehouse.branch_id === branchId && warehouse.is_active !== false);
+            setForm((current) => ({
+              ...current,
+              branch_id: branchId,
+              warehouse_id: nextWarehouses.some((warehouse) => warehouse.id === current.warehouse_id)
+                ? current.warehouse_id
+                : (nextWarehouses[0]?.id || ''),
+              supplier_id: suppliers.some((supplier) => supplier.id === current.supplier_id && (!supplier.branch_id || supplier.branch_id === branchId))
+                ? current.supplier_id
+                : '',
+            }));
+            setLineItems((current) => current.map((line) => ({
+              ...line,
+              product_id: products.some((product) => product.id === line.product_id && product.branch_id === branchId) ? line.product_id : '',
+              raw_material_id: rawMaterials.some((material) => material.id === line.raw_material_id && material.branch_id === branchId) ? line.raw_material_id : '',
+            })));
+          };
+          """))
+          repls.append((
+          """    setForm({
+              supplier_id: suppliers[0]?.id || '',
+              warehouse_id: warehouses[0]?.id || '',
+              branch_id: user?.branch_id || branches[0]?.id || '',
+              payment_method: 'cash',
+              notes: '',
+            });
+          """,
+          """    const branchId = user?.branch_id || branchFilter || branches[0]?.id || '';
+            const availableWarehouses = warehouses.filter((warehouse) => warehouse.branch_id === branchId && warehouse.is_active !== false);
+            const availableSuppliers = suppliers.filter((supplier) => !supplier.branch_id || supplier.branch_id === branchId);
+            setForm({
+              supplier_id: availableSuppliers[0]?.id || '',
+              warehouse_id: availableWarehouses[0]?.id || '',
+              branch_id: branchId,
+              payment_method: 'cash',
+              notes: '',
+            });
+          """))
+          repls.append((
+          """    const hasProductLines = validItems.some((l) => l.line_type === 'product');
+            if (hasProductLines && !form.warehouse_id) { show(t('required') + ': ' + t('warehouse'), 'error'); return; }
+          """,
+          """    if (!form.branch_id) { show(t('required') + ': ' + t('branch'), 'error'); return; }
+            if (!form.warehouse_id) { show(t('required') + ': ' + t('warehouse'), 'error'); return; }
+            if (!branchWarehouses.some((warehouse) => warehouse.id === form.warehouse_id)) {
+              show(lang === 'ar' ? 'المستودع المحدد لا يتبع الفرع المختار' : 'The selected warehouse does not belong to the selected branch', 'error');
+              return;
+            }
+          """))
+          repls.append((
+          """            <Select label={t('supplier')} value={form.supplier_id} onChange={(e) => setForm({ ...form, supplier_id: e.target.value })} required>
+                        <option value=\"\">--</option>
+                        {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                      </Select>
+                      <Select label={t('warehouse')} value={form.warehouse_id} onChange={(e) => setForm({ ...form, warehouse_id: e.target.value })}>
+                        <option value=\"\">--</option>
+                        {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+                      </Select>
+                      <Select label={t('branch')} value={form.branch_id} onChange={(e) => setForm({ ...form, branch_id: e.target.value })}>
+                        <option value=\"\">--</option>
+                        {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                      </Select>
+          """,
+          """            <Select label={t('branch')} value={form.branch_id} onChange={(e) => changeBranch(e.target.value)} required>
+                        <option value=\"\">--</option>
+                        {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                      </Select>
+                      <Select label={t('warehouse')} value={form.warehouse_id} onChange={(e) => setForm({ ...form, warehouse_id: e.target.value })} required disabled={!form.branch_id}>
+                        <option value=\"\">--</option>
+                        {branchWarehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+                      </Select>
+                      <Select label={t('supplier')} value={form.supplier_id} onChange={(e) => setForm({ ...form, supplier_id: e.target.value })} required>
+                        <option value=\"\">--</option>
+                        {branchSuppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                      </Select>
+          """))
+          repls.append(("{products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}","{branchProducts.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}"))
+          repls.append(("{rawMaterials.map((rm) => <option key={rm.id} value={rm.id}>{rm.name}</option>)}","{branchRawMaterials.map((rm) => <option key={rm.id} value={rm.id}>{rm.name}</option>)}"))
+          for i,(old,new) in enumerate(repls,1):
+              c=s.count(old)
+              if c != 1:
+                  raise SystemExit(f'replacement {i} expected once, found {c}')
+              s=s.replace(old,new,1)
+          p.write_text(s)
+          PY
+          cp app/src/features/trade/pages/PurchasesPage.tsx overrides/src/features/trade/pages/PurchasesPage.tsx
+      - name: Commit overrides
+        run: |
+          git config user.name Premier
+          git config user.email sayed3la2@gmail.com
+          git add overrides
+          git commit -m 'chore: materialize verified overrides'
+          git push origin HEAD:Premieros-patch-1-verify
