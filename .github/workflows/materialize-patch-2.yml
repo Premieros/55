@@ -1,8 +1,6 @@
 name: Materialize Patch 2 Compatibility
 
 on:
-  push:
-    branches: ["Premieros-patch-2"]
   workflow_dispatch:
 
 permissions:
@@ -10,7 +8,6 @@ permissions:
 
 jobs:
   materialize:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.head_commit.message != 'fix materialize production compatible snapshot' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
