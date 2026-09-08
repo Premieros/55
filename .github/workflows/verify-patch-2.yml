@@ -25,7 +25,7 @@ jobs:
           test -f app/supabase/migrations/20260908150000_unify_warehouse_inventory_and_pos_availability.sql
           test -f app/tests/unit/warehouseInventoryUnifiedContract.test.ts
 
-      - name: Verify migration safety contract
+      - name: Verify migration safety and production compatibility contract
         working-directory: app
         run: |
           MIG="supabase/migrations/20260908150000_unify_warehouse_inventory_and_pos_availability.sql"
@@ -34,6 +34,12 @@ jobs:
           grep -q "WAREHOUSE_BRANCH_MISMATCH" "$MIG"
           grep -q "w.branch_id = rmi.branch_id" "$MIG"
           grep -q "w.branch_id = rmb.branch_id" "$MIG"
+          grep -q "COALESCE(u.name, u.symbol, 'وحدة') AS unit_name" "$MIG"
+          grep -q "COALESCE(iu.sku, iu.code) AS item_code" "$MIG"
+          grep -q "SELECT rmi.quantity FROM public.raw_material_inventory rmi" "$MIG"
+          if grep -q "r.is_default" "$MIG"; then echo "Unsupported recipes.is_default reference"; exit 1; fi
+          if grep -q "iu.base_unit" "$MIG"; then echo "Unsupported inventory_units.base_unit reference"; exit 1; fi
+          if grep -Eq "COALESCE\(u\.name,[[:space:]]*rm\.unit" "$MIG"; then echo "Unsupported raw_materials.unit reference"; exit 1; fi
           if grep -Eq "WHERE[[:space:]]+w\.is_active[[:space:]]*=[[:space:]]*true" "$MIG"; then
             echo "Unsafe cross-branch warehouse fallback detected"
             exit 1
@@ -48,7 +54,7 @@ jobs:
         working-directory: app
         run: |
           npm install --legacy-peer-deps --no-audit --no-fund
-          npm install --legacy-peer-deps --no-save --no-audit --no-fund react-is@18.3.1 @testing-library/dom
+          npm install --legacy-peer-deps --no-save --no-audit --no-fund react-is@18.3.1
 
       - name: Verify database identity
         working-directory: app
