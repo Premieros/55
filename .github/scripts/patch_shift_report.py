@@ -1,0 +1,202 @@
+from pathlib import Path
+
+path = Path('app/src/features/trade/services/shiftClosingReport.ts')
+s = path.read_text(encoding='utf-8')
+
+old = """  // 3. Fetch all sales for this shift
+  const { data: sales } = await supabase
+    .from('sales')
+    .select('*, sale_items(*, product:products(*))')
+    .eq('shift_id', shiftId);
+
+  const salesList = (sales || []) as Array<{
+    id: string;
+    invoice_number: string;
+    subtotal: number;
+    discount_amount: number;
+    tax_amount: number;
+    total: number;
+    payment_method: string;
+    order_type: string;
+    cashier_id?: string;
+    created_by?: string;
+    created_at?: string;
+    status?: string;
+    sale_items?: Array<{
+      product_id: string;
+      unit_name?: string;
+      quantity: number;
+      unit_price: number;
+      total: number;
+      product?: { name?: string; name_en?: string };
+    }>;
+  }>;
+"""
+
+new = """  // 3. Resolve the sales that belong to this shift through shift_operations.
+  // sales intentionally has no shift_id column; shift_operations is the authoritative
+  // audit link between a shift and every sale/refund recorded in that drawer.
+  const { data: shiftOperations, error: operationsErr } = await supabase
+    .from('shift_operations')
+    .select('operation_type, amount, payment_method, reference_type, reference_id, created_by, created_at')
+    .eq('shift_id', shiftId);
+
+  if (operationsErr) {
+    throw new Error(operationsErr.message || 'Could not load shift operations');
+  }
+
+  const operationsList = (shiftOperations || []) as Array<{
+    operation_type: string;
+    amount: number;
+    payment_method?: string | null;
+    reference_type?: string | null;
+    reference_id?: string | null;
+    created_by?: string | null;
+    created_at?: string;
+  }>;
+
+  const saleIds = Array.from(new Set(
+    operationsList
+      .filter((op) => op.operation_type === 'sale' && op.reference_type === 'sale' && op.reference_id)
+      .map((op) => op.reference_id as string),
+  ));
+
+  type ShiftSaleRow = {
+    id: string;
+    invoice_number: string;
+    subtotal: number;
+    discount_amount: number;
+    tax_amount: number;
+    total: number;
+    payment_method: string;
+    order_type: string;
+    cashier_id?: string;
+    created_by?: string;
+    created_at?: string;
+    status?: string;
+    sale_items?: Array<{
+      product_id: string;
+      unit_name?: string;
+      quantity: number;
+      unit_price: number;
+      total: number;
+      product?: { name?: string; name_en?: string };
+    }>;
+  };
+
+  let salesList: ShiftSaleRow[] = [];
+  if (saleIds.length > 0) {
+    const { data: sales, error: salesErr } = await supabase
+      .from('sales')
+      .select('*, sale_items(*, product:products(*))')
+      .in('id', saleIds)
+      .eq('branch_id', effectiveBranchId);
+
+    if (salesErr) {
+      throw new Error(salesErr.message || 'Could not load shift sales');
+    }
+
+    salesList = (sales || []) as ShiftSaleRow[];
+  }
+"""
+
+if old not in s:
+    raise SystemExit('Expected legacy sales-by-shift block was not found; refusing unsafe patch')
+s = s.replace(old, new, 1)
+
+old_refunds = """  // Also query shift_operations for refunds
+  try {
+    const { data: operations } = await supabase
+      .from('shift_operations')
+      .select('*')
+      .eq('shift_id', shiftId);
+
+    if (operations && Array.isArray(operations)) {
+      for (const op of operations) {
+        if (op.operation_type === 'refund') {
+          const opUserId = op.created_by || shift.cashier_id || 'unknown';
+          const refundAmt = Math.abs(Number(op.amount || 0));
+          shiftTotalRefunds += refundAmt;
+          const entry = activeUserMap.get(opUserId) || {
+            userId: opUserId,
+            invoicesCount: 0,
+            grossSales: 0,
+            totalDiscounts: 0,
+            totalRefunds: 0,
+            refundsCount: 0,
+            netSales: 0,
+            cashSales: 0,
+            cardSales: 0,
+            otherSales: 0,
+            firstActiveAt: op.created_at || null,
+            lastActiveAt: op.created_at || null,
+          };
+          entry.totalRefunds += refundAmt;
+          entry.refundsCount += 1;
+          activeUserMap.set(opUserId, entry);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Could not query shift operations:', err);
+  }
+"""
+
+new_refunds = """  // Reuse the same authoritative operation list for refunds so the report does
+  // not issue a second, potentially divergent shift query.
+  for (const op of operationsList) {
+    if (op.operation_type === 'refund') {
+      const opUserId = op.created_by || shift.cashier_id || 'unknown';
+      const refundAmt = Math.abs(Number(op.amount || 0));
+      shiftTotalRefunds += refundAmt;
+      const entry = activeUserMap.get(opUserId) || {
+        userId: opUserId,
+        invoicesCount: 0,
+        grossSales: 0,
+        totalDiscounts: 0,
+        totalRefunds: 0,
+        refundsCount: 0,
+        netSales: 0,
+        cashSales: 0,
+        cardSales: 0,
+        otherSales: 0,
+        firstActiveAt: op.created_at || null,
+        lastActiveAt: op.created_at || null,
+      };
+      entry.totalRefunds += refundAmt;
+      entry.refundsCount += 1;
+      activeUserMap.set(opUserId, entry);
+    }
+  }
+"""
+
+if old_refunds not in s:
+    raise SystemExit('Expected refund operations block was not found; refusing unsafe patch')
+s = s.replace(old_refunds, new_refunds, 1)
+path.write_text(s, encoding='utf-8')
+
+test_path = Path('app/tests/unit/shiftClosingReportContract.test.ts')
+test_path.write_text("""import { describe, expect, it } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
+
+describe('shift closing report contract', () => {
+  const source = fs.readFileSync(
+    path.resolve(process.cwd(), 'src/features/trade/services/shiftClosingReport.ts'),
+    'utf8',
+  );
+
+  it('links shift sales through shift_operations rather than a nonexistent sales.shift_id', () => {
+    expect(source).toContain(".from('shift_operations')");
+    expect(source).toContain("op.operation_type === 'sale'");
+    expect(source).toContain("op.reference_type === 'sale'");
+    expect(source).toContain(".in('id', saleIds)");
+    expect(source).not.toContain(".from('sales')\\n    .select('*, sale_items(*, product:products(*))')\\n    .eq('shift_id', shiftId)");
+  });
+
+  it('fails visibly when shift operations or referenced sales cannot be read', () => {
+    expect(source).toContain('if (operationsErr)');
+    expect(source).toContain('if (salesErr)');
+  });
+});
+""", encoding='utf-8')
