@@ -1,0 +1,120 @@
++      if (rawError) {
++        show(rawError.message, 'error');
++        setRawStock([]);
++      } else {
++        setRawStock((data as RawWarehouseStock[]) || []);
++      }
++    } finally {
++      setRawLoading(false);
++    }
++  };
++
+   useEffect(() => {
+     async function loadMeta() {
+       const [wh, pc] = await Promise.all([
+@@ -49,21 +86,42 @@
+       setComponentIds(new Set((pc.data || []).map((row: { component_product_id: string }) => row.component_product_id)));
+     }
+     void loadMeta();
++    void reloadRaw();
+   }, []);
+ 
+-  const filtered = items.filter((item) => {
+-    if (filterWarehouse && item.warehouse_id !== filterWarehouse) return false;
++  const rows = useMemo<InventoryRow[]>(
++    () => [
++      ...items.map((inventory) => ({ kind: 'product' as const, inventory })),
++      ...rawStock.map((inventory) => ({ kind: 'raw' as const, inventory })),
++    ],
++    [items, rawStock],
++  );
++
++  const filtered = rows.filter((row) => {
++    const warehouseId = row.inventory.warehouse_id;
++    if (filterWarehouse && warehouseId !== filterWarehouse) return false;
++
++    if (row.kind === 'raw') {
++      if (filterType !== 'all' && filterType !== 'raw') return false;
++      if (!search) return true;
++      const q = search.toLocaleLowerCase();
++      return row.inventory.raw_material?.name?.toLocaleLowerCase().includes(q)
++        || row.inventory.raw_material?.code?.toLocaleLowerCase().includes(q);
++    }
++
++    const item = row.inventory;
++    if (filterType === 'raw') return false;
+     if (filterType === 'components' && !componentIds.has(item.product_id)) return false;
+-    if (filterType === 'ready' && (item.product?.product_type !== 'ready' || componentIds.has(item.product_id))) return false;
++    if (filterType === 'ready' && componentIds.has(item.product_id)) return false;
+     if (!search) return true;
+     const query = search.toLocaleLowerCase();
+     return item.product?.name.toLocaleLowerCase().includes(query) || item.product?.barcode?.includes(search);
+   });
+ 
+-  const openAdjust = (inventory: Inventory) => {
++  const openAdjust = (row: InventoryRow) => {
+     if (!can('inventory.adjust')) return;
+-    setAdjustModal(inventory);
+-    setAdjustQty(inventory.quantity);
++    setAdjustModal(row);
++    setAdjustQty(Number(row.inventory.quantity));
+     setAdjustReason('');
+   };
+ 
+@@ -73,58 +131,106 @@
+       show(isAr ? 'سبب التسوية مطلوب' : 'Adjustment reason is required', 'error');
+       return;
+     }
+-    const { data, error: adjustError } = await api.inventory.adjustStock({
+-      p_inventory_id: adjustModal.id,
+-      p_new_quantity: adjustQty,
+-      p_reason: adjustReason.trim(),
+-    });
+-    if (adjustError) { show(adjustError.message, 'error'); return; }
+-    const result = data as { success: boolean; error?: string; detail?: string } | null;
+-    if (!result?.success) { show(result?.detail || result?.error || t('error'), 'error'); return; }
+-    await logAudit('update', 'inventory', adjustModal.id, { from: adjustModal.quantity, to: adjustQty, reason: adjustReason.trim() });
++
++    if (adjustModal.kind === 'product') {
++      const inventory = adjustModal.inventory;
++      const { data, error: adjustError } = await api.inventory.adjustStock({
++        p_inventory_id: inventory.id,
++        p_new_quantity: adjustQty,
++        p_reason: adjustReason.trim(),
++      });
++      if (adjustError) { show(adjustError.message, 'error'); return; }
++      const result = data as { success: boolean; error?: string; detail?: string } | null;
++      if (!result?.success) { show(result?.detail || result?.error || t('error'), 'error'); return; }
++      await logAudit('update', 'inventory', inventory.id, { from: inventory.quantity, to: adjustQty, reason: adjustReason.trim() });
++      reloadInventory();
++    } else {
++      const inventory = adjustModal.inventory;
++      const { data, error: adjustError } = await api.inventory.adjustRawStock({
++        p_raw_material_id: inventory.raw_material_id,
++        p_branch_id: inventory.branch_id,
++        p_warehouse_id: inventory.warehouse_id,
++        p_new_quantity: adjustQty,
++        p_reason: adjustReason.trim(),
++      });
++      if (adjustError) { show(adjustError.message, 'error'); return; }
++      const result = data as { success: boolean; error?: string; detail?: string } | null;
++      if (!result?.success) { show(result?.detail || result?.error || t('error'), 'error'); return; }
++      await logAudit('update', 'raw_material_warehouse_inventory', inventory.id, {
++        from: inventory.quantity,
++        to: adjustQty,
++        reason: adjustReason.trim(),
++        warehouse_id: inventory.warehouse_id,
++      });
++      await reloadRaw();
++    }
++
+     show(t('saveSuccess'), 'success');
+     setAdjustModal(null);
+-    reloadInventory();
+   };
+ 
++  const nameOf = (row: InventoryRow) =>
++    row.kind === 'product' ? (row.inventory.product?.name || '-') : (row.inventory.raw_material?.name || '-');
++
++  const warehouseOf = (row: InventoryRow) => row.inventory.warehouse?.name || '-';
++
