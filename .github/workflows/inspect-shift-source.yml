@@ -15,17 +15,13 @@ jobs:
       - uses: actions/checkout@v4
       - name: Extract snapshot
         run: |
-          rm -rf app out
-          mkdir -p app out
+          rm -rf app
+          mkdir -p app
           unzip -q johna-s.zip -d app
-          find app/src -type f \( -iname '*shift*.ts' -o -iname '*shift*.tsx' -o -iname '*user*performance*.ts' -o -iname '*user*performance*.tsx' \) -print > out/files.txt
-          while IFS= read -r f; do
-            rel="${f#app/}"
-            mkdir -p "out/$(dirname "$rel")"
-            cp "$f" "out/$rel"
-          done < out/files.txt
-      - name: Upload inspection
+          test -f app/package.json
+          test -f app/src/features/trade/services/shiftClosingReport.ts
+      - name: Upload exact extracted snapshot
         uses: actions/upload-artifact@v4
         with:
-          name: shift-source-inspection
-          path: out
+          name: shift-full-snapshot
+          path: app
