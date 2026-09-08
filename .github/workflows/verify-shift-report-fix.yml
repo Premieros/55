@@ -1,0 +1,64 @@
+name: Verify Shift Sales Report Fix
+
+on:
+  push:
+    branches: ["fix/shift-sales-report"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract canonical snapshot
+        run: |
+          rm -rf app
+          mkdir -p app
+          unzip -q johna-s.zip -d app
+          test -f app/src/features/trade/services/shiftClosingReport.ts
+          test -f app/tests/unit/shiftClosingReportContract.test.ts
+      - name: Verify shift-sales source contract
+        working-directory: app
+        run: |
+          FILE="src/features/trade/services/shiftClosingReport.ts"
+          grep -q "from('shift_operations')" "$FILE"
+          grep -q "op.operation_type === 'sale'" "$FILE"
+          grep -q "op.reference_type === 'sale'" "$FILE"
+          grep -q ".in('id', saleIds)" "$FILE"
+          if grep -A2 "from('sales')" "$FILE" | grep -q "eq('shift_id', shiftId)"; then
+            echo "Invalid sales.shift_id query remains"
+            exit 1
+          fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        working-directory: app
+        run: |
+          npm install --legacy-peer-deps --no-audit --no-fund
+          npm install --legacy-peer-deps --no-save --no-audit --no-fund react-is@18.3.1
+      - name: Verify database identity
+        working-directory: app
+        env:
+          SUPABASE_PROJECT_REF: scpovyrqmsbiduanykod
+          VITE_SUPABASE_URL: https://scpovyrqmsbiduanykod.supabase.co
+        run: npm run verify:db-identity
+      - name: Shift report regression test
+        working-directory: app
+        run: npx vitest run tests/unit/shiftClosingReportContract.test.ts
+      - name: Unit tests
+        working-directory: app
+        run: npm run test:unit
+      - name: Lint
+        working-directory: app
+        run: npm run lint
+      - name: Build
+        working-directory: app
+        env:
+          VITE_BASE_PATH: /55/
+          VITE_SUPABASE_URL: https://scpovyrqmsbiduanykod.supabase.co
+          VITE_SUPABASE_ANON_KEY: sb_publishable_r1Qbehu-uzsQo-8vOr77OQ_Tzj6K_Jm
+        run: npm run build
