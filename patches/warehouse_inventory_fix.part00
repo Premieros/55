@@ -1,0 +1,122 @@
+--- a/src/api/domains/inventory.ts
++++ b/src/api/domains/inventory.ts
+@@ -4,7 +4,7 @@
+ 
+ export const inventory = {
+   adjustStock(p: { p_inventory_id: string; p_new_quantity: number; p_reason: string | null }): ApiResult<RpcResult> { return rpc('adjust_stock', p); },
+-  adjustRawStock(p: { p_raw_material_id: string; p_branch_id: string; p_new_quantity: number; p_reason: string | null }): ApiResult<RpcResult> { return rpc('adjust_raw_stock', p); },
++  adjustRawStock(p: { p_raw_material_id: string; p_branch_id: string; p_warehouse_id: string; p_new_quantity: number; p_reason: string | null }): ApiResult<RpcResult> { return rpc('adjust_raw_stock', p); },
+   createTransfer(p: { p_from_warehouse_id: string; p_to_warehouse_id: string; p_branch_id: string; p_items: { product_id: string; quantity: number; unit_cost: number }[]; p_reason: string | null; p_notes: string | null }): ApiResult<RpcResult> { return rpc('create_warehouse_transfer', p); },
+   approveTransfer(p: { p_transfer_id: string }): ApiResult<RpcResult> { return rpc('approve_warehouse_transfer', p); },
+   rejectTransfer(p: { p_transfer_id: string; p_reason: string | null }): ApiResult<RpcResult> { return rpc('reject_warehouse_transfer', p); },
+--- a/src/features/trade/pages/PurchasesPage.tsx
++++ b/src/features/trade/pages/PurchasesPage.tsx
+@@ -103,6 +103,42 @@
+ 
+   const subtotal = useMemo(() => lineItems.reduce((s, i) => s + i.quantity * i.unit_cost, 0), [lineItems]);
+ 
++  const branchWarehouses = useMemo(
++    () => warehouses.filter((warehouse) => !!form.branch_id && warehouse.branch_id === form.branch_id && warehouse.is_active !== false),
++    [warehouses, form.branch_id],
++  );
++  const branchSuppliers = useMemo(
++    () => suppliers.filter((supplier) => !form.branch_id || !supplier.branch_id || supplier.branch_id === form.branch_id),
++    [suppliers, form.branch_id],
++  );
++  const branchProducts = useMemo(
++    () => products.filter((product) => !form.branch_id || product.branch_id === form.branch_id),
++    [products, form.branch_id],
++  );
++  const branchRawMaterials = useMemo(
++    () => rawMaterials.filter((material) => !form.branch_id || material.branch_id === form.branch_id),
++    [rawMaterials, form.branch_id],
++  );
++
++  const changeBranch = (branchId: string) => {
++    const nextWarehouses = warehouses.filter((warehouse) => warehouse.branch_id === branchId && warehouse.is_active !== false);
++    setForm((current) => ({
++      ...current,
++      branch_id: branchId,
++      warehouse_id: nextWarehouses.some((warehouse) => warehouse.id === current.warehouse_id)
++        ? current.warehouse_id
++        : (nextWarehouses[0]?.id || ''),
++      supplier_id: suppliers.some((supplier) => supplier.id === current.supplier_id && (!supplier.branch_id || supplier.branch_id === branchId))
++        ? current.supplier_id
++        : '',
++    }));
++    setLineItems((current) => current.map((line) => ({
++      ...line,
++      product_id: products.some((product) => product.id === line.product_id && product.branch_id === branchId) ? line.product_id : '',
++      raw_material_id: rawMaterials.some((material) => material.id === line.raw_material_id && material.branch_id === branchId) ? line.raw_material_id : '',
++    })));
++  };
++
+   const openAdd = () => {
+     const allowed = guardPurchase({
+       warehousesCount: warehouses.length,
+@@ -113,10 +149,13 @@
+     });
+     if (!allowed) return;
+ 
++    const branchId = user?.branch_id || branchFilter || branches[0]?.id || '';
++    const availableWarehouses = warehouses.filter((warehouse) => warehouse.branch_id === branchId && warehouse.is_active !== false);
++    const availableSuppliers = suppliers.filter((supplier) => !supplier.branch_id || supplier.branch_id === branchId);
+     setForm({
+-      supplier_id: suppliers[0]?.id || '',
+-      warehouse_id: warehouses[0]?.id || '',
+-      branch_id: user?.branch_id || branches[0]?.id || '',
++      supplier_id: availableSuppliers[0]?.id || '',
++      warehouse_id: availableWarehouses[0]?.id || '',
++      branch_id: branchId,
+       payment_method: 'cash',
+       notes: '',
+     });
+@@ -189,8 +228,12 @@
+     const validItems = lineItems.filter((l) => (l.line_type === 'product' ? l.product_id : l.raw_material_id) && l.quantity > 0);
+     if (!form.supplier_id) { show(t('required') + ': ' + t('supplier'), 'error'); return; }
+     if (validItems.length === 0) { show(t('required') + ': ' + t('addProduct'), 'error'); return; }
+-    const hasProductLines = validItems.some((l) => l.line_type === 'product');
+-    if (hasProductLines && !form.warehouse_id) { show(t('required') + ': ' + t('warehouse'), 'error'); return; }
++    if (!form.branch_id) { show(t('required') + ': ' + t('branch'), 'error'); return; }
++    if (!form.warehouse_id) { show(t('required') + ': ' + t('warehouse'), 'error'); return; }
++    if (!branchWarehouses.some((warehouse) => warehouse.id === form.warehouse_id)) {
++      show(lang === 'ar' ? 'المستودع المحدد لا يتبع الفرع المختار' : 'The selected warehouse does not belong to the selected branch', 'error');
++      return;
++    }
+ 
+     const { data: serialRes, error: serialError } = await api.trade.nextDocumentNumber({ p_type: 'purchase' });
+     if (serialError || !serialRes?.success) {
+@@ -434,17 +477,17 @@
+       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={t('purchaseInvoice')} size="xl">
+         <div className="space-y-4">
+           <div className="grid grid-cols-2 gap-4">
+-            <Select label={t('supplier')} value={form.supplier_id} onChange={(e) => setForm({ ...form, supplier_id: e.target.value })} required>
++            <Select label={t('branch')} value={form.branch_id} onChange={(e) => changeBranch(e.target.value)} required>
+               <option value="">--</option>
+-              {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
++              {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+             </Select>
+-            <Select label={t('warehouse')} value={form.warehouse_id} onChange={(e) => setForm({ ...form, warehouse_id: e.target.value })}>
++            <Select label={t('warehouse')} value={form.warehouse_id} onChange={(e) => setForm({ ...form, warehouse_id: e.target.value })} required disabled={!form.branch_id}>
+               <option value="">--</option>
+-              {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
++              {branchWarehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+             </Select>
+-            <Select label={t('branch')} value={form.branch_id} onChange={(e) => setForm({ ...form, branch_id: e.target.value })}>
++            <Select label={t('supplier')} value={form.supplier_id} onChange={(e) => setForm({ ...form, supplier_id: e.target.value })} required>
+               <option value="">--</option>
+-              {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
++              {branchSuppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+             </Select>
+             <Select label={t('paymentMethod')} value={form.payment_method} onChange={(e) => setForm({ ...form, payment_method: e.target.value })}>
+               <option value="cash">{t('cash')}</option>
+@@ -470,12 +513,12 @@
+                     {l.line_type === 'product' ? (
+                       <select value={l.product_id} onChange={(e) => updateLine(i, 'product_id', e.target.value)} className="w-full rounded-md border border-ui-border bg-ui-surface px-2 py-1.5 text-sm">
+                         <option value="">--</option>
+-                        {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
++                        {branchProducts.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                       </select>
+                     ) : (
+                       <select value={l.raw_material_id} onChange={(e) => updateRawMaterial(i, e.target.value)} className="w-full rounded-md border border-ui-border bg-ui-surface px-2 py-1.5 text-sm">
+                         <option value="">--</option>
