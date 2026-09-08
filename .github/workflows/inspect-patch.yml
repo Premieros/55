@@ -24,11 +24,13 @@ jobs:
 
       - name: Apply warehouse inventory patch
         run: |
-          cat patches/warehouse_inventory_fix.part00 \
-              patches/warehouse_inventory_fix.part01 \
-              patches/warehouse_inventory_fix.part02 \
-              patches/warehouse_inventory_fix.part03 \
-              patches/warehouse_inventory_fix.part04 > /tmp/warehouse_inventory_fix.patch
+          {
+            head -n -2 patches/warehouse_inventory_fix.part00
+            cat patches/warehouse_inventory_fix.part01
+            cat patches/warehouse_inventory_fix.part02
+            cat patches/warehouse_inventory_fix.part03
+            cat patches/warehouse_inventory_fix.part04
+          } > /tmp/warehouse_inventory_fix.patch
           cd app
           patch --dry-run -p1 < /tmp/warehouse_inventory_fix.patch
           patch -p1 < /tmp/warehouse_inventory_fix.patch
