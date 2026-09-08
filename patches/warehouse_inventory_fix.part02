@@ -1,0 +1,120 @@
+     if (error) { show(error.message, 'error'); return; }
+     const result = data as RpcResult | null;
+     if (!result?.success) { show(result?.detail || result?.error || t('error'), 'error'); return; }
+-    await logAudit('update', 'raw_material_inventory', adjustTarget.id, { from: adjustTarget.quantity, to: adjustQty });
++    await logAudit('update', 'raw_material_warehouse_inventory', adjustTarget.id, { from: adjustTarget.quantity, to: adjustQty, warehouse_id: adjustTarget.warehouse_id });
+     show(t('saveSuccess'), 'success');
+     setAdjustTarget(null);
+     loadMeta();
+@@ -210,11 +236,12 @@
+     )},
+   ];
+ 
+-  const stockColumns: Column<RawMaterialInventory>[] = [
++  const stockColumns: Column<WarehouseRawInventory>[] = [
+     { key: 'material', header: t('rawMaterial'), render: (i) => i.raw_material?.name || '-' },
+     { key: 'branch', header: t('branch'), render: (i) => branchLabel(i.branch_id) },
++    { key: 'warehouse', header: t('warehouse'), render: (i) => i.warehouse?.name || '-' },
+     { key: 'quantity', header: t('quantity'), render: (i) => (
+-      <span className={`font-semibold ${Number(i.quantity) < Number(i.min_stock) ? 'text-ui-danger' : 'text-ui-text'}`}>
++      <span className={`font-semibold ${Number(i.quantity) < Number(i.raw_material?.min_stock || 0) ? 'text-ui-danger' : 'text-ui-text'}`}>
+         {formatNumber(Number(i.quantity))}
+       </span>
+     )},
+@@ -230,9 +257,10 @@
+     )},
+   ];
+ 
+-  const batchColumns: Column<RawMaterialBatch>[] = [
++  const batchColumns: Column<WarehouseRawBatch>[] = [
+     { key: 'material', header: t('rawMaterial'), render: (b) => b.raw_material?.name || '-' },
+     { key: 'branch', header: t('branch'), render: (b) => branchLabel(b.branch_id) },
++    { key: 'warehouse', header: t('warehouse'), render: (b) => b.warehouse?.name || (isAr ? 'قديم - غير منسوب' : 'Legacy - unassigned') },
+     { key: 'batch_number', header: t('batchNumber'), render: (b) => b.batch_number || '-' },
+     { key: 'quantity', header: t('quantity'), render: (b) => formatNumber(Number(b.quantity)) },
+     { key: 'unit_cost', header: t('unitCost'), render: (b) => formatNumber(Number(b.unit_cost), 2) },
+@@ -274,10 +302,14 @@
+       {tab !== 'materials' && (
+         <DesignPanel testId="raw-materials-branch-panel">
+           <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+-            <Select value={stockBranch} onChange={(e) => setStockBranch(e.target.value)} label={t('branch')} className="sm:w-64">
++            <Select value={stockBranch} onChange={(e) => { setStockBranch(e.target.value); setStockWarehouse(''); }} label={t('branch')} className="sm:w-64">
+               <option value="">{t('all')} - {t('branches')}</option>
+               {branches.map((br) => <option key={br.id} value={br.id}>{br.name}</option>)}
+             </Select>
++            <Select value={stockWarehouse} onChange={(e) => setStockWarehouse(e.target.value)} label={t('warehouse')} className="sm:w-64">
++              <option value="">{t('all')} - {t('warehouses')}</option>
++              {stockWarehouseOptions.map((warehouse) => <option key={warehouse.id} value={warehouse.id}>{warehouse.name}</option>)}
++            </Select>
+           </div>
+         </DesignPanel>
+       )}
+@@ -351,6 +383,10 @@
+               <p className="text-sm text-ui-subtle">{t('branch')}</p>
+               <p className="font-medium text-ui-text">{branchLabel(adjustTarget.branch_id)}</p>
+             </div>
++            <div>
++              <p className="text-sm text-ui-subtle">{t('warehouse')}</p>
++              <p className="font-medium text-ui-text">{adjustTarget.warehouse?.name || '-'}</p>
++            </div>
+             <Input label={t('quantity')} type="number" step="0.0001" value={adjustQty} onChange={(e) => setAdjustQty(parseFloat(e.target.value) || 0)} />
+             <Input label={t('reason')} value={adjustReason} onChange={(e) => setAdjustReason(e.target.value)} placeholder={isAr ? 'مثال: جرد، تالف، تصحيح' : 'e.g. count, damaged, correction'} />
+             <div className="flex justify-end gap-2">
+--- a/src/features/inventory/pages/InventoryPage.tsx
++++ b/src/features/inventory/pages/InventoryPage.tsx
+@@ -1,4 +1,4 @@
+-import { useEffect, useState } from 'react';
++import { useEffect, useMemo, useState } from 'react';
+ import { AlertTriangle, Download, Edit2 } from 'lucide-react';
+ import { supabase } from '@/api';
+ import * as api from '@/api';
+@@ -16,7 +16,23 @@
+ import { logAudit } from '@/lib/audit';
+ import { usePaginatedRows } from '@/hooks/usePaginatedRows';
+ import { useBranches } from '@/hooks/useBranches';
+-import type { Inventory, Warehouse } from '@/lib/types';
++import type { Inventory, Warehouse, RawMaterial } from '@/lib/types';
++
++type RawWarehouseStock = {
++  id: string;
++  raw_material_id: string;
++  branch_id: string;
++  warehouse_id: string;
++  quantity: number;
++  avg_cost: number;
++  updated_at: string;
++  raw_material?: RawMaterial;
++  warehouse?: Warehouse;
++};
++
++type InventoryRow =
++  | { kind: 'product'; inventory: Inventory }
++  | { kind: 'raw'; inventory: RawWarehouseStock };
+ 
+ export function InventoryPage() {
+   const { t, lang } = useLanguage();
+@@ -30,15 +46,36 @@
+     order: { column: 'updated_at', ascending: false },
+     pageSize: 100,
+   });
++
++  const [rawStock, setRawStock] = useState<RawWarehouseStock[]>([]);
++  const [rawLoading, setRawLoading] = useState(true);
+   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+   const [componentIds, setComponentIds] = useState<Set<string>>(new Set());
+   const [search, setSearch] = useState('');
+   const [filterWarehouse, setFilterWarehouse] = useState('');
+-  const [filterType, setFilterType] = useState('all');
+-  const [adjustModal, setAdjustModal] = useState<Inventory | null>(null);
++  const [filterType, setFilterType] = useState<'all' | 'ready' | 'components' | 'raw'>('all');
++  const [adjustModal, setAdjustModal] = useState<InventoryRow | null>(null);
+   const [adjustQty, setAdjustQty] = useState(0);
+   const [adjustReason, setAdjustReason] = useState('');
+ 
++  const reloadRaw = async () => {
++    setRawLoading(true);
++    try {
++      const { data, error: rawError } = await supabase
++        .from('raw_material_warehouse_inventory')
++        .select('*, raw_material:raw_materials(*), warehouse:warehouses(*)')
++        .order('updated_at', { ascending: false });

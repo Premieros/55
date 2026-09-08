@@ -1,0 +1,120 @@
+                       <select value={l.raw_material_id} onChange={(e) => updateRawMaterial(i, e.target.value)} className="w-full rounded-md border border-ui-border bg-ui-surface px-2 py-1.5 text-sm">
+                         <option value="">--</option>
+-                        {rawMaterials.map((rm) => <option key={rm.id} value={rm.id}>{rm.name}</option>)}
++                        {branchRawMaterials.map((rm) => <option key={rm.id} value={rm.id}>{rm.name}</option>)}
+                       </select>
+                     )}
+                   </div>
+--- a/src/features/manufacturing/pages/RawMaterialsPage.tsx
++++ b/src/features/manufacturing/pages/RawMaterialsPage.tsx
+@@ -16,10 +16,20 @@
+ import { formatNumber, formatDate } from '@/lib/format';
+ import { logAudit } from '@/lib/audit';
+ import { usePaginatedRows } from '@/hooks/usePaginatedRows';
+-import type { RawMaterial, RawMaterialInventory, RawMaterialBatch, Unit, Branch, RpcResult } from '@/lib/types';
++import type { RawMaterial, RawMaterialInventory, RawMaterialBatch, Unit, Branch, RpcResult, Warehouse } from '@/lib/types';
+ 
+ type Tab = 'materials' | 'stock' | 'batches';
+ 
++type WarehouseRawInventory = RawMaterialInventory & {
++  warehouse_id: string;
++  warehouse?: Warehouse;
++};
++
++type WarehouseRawBatch = RawMaterialBatch & {
++  warehouse_id?: string | null;
++  warehouse?: Warehouse | null;
++};
++
+ interface MaterialForm {
+   id?: string;
+   code: string;
+@@ -53,17 +63,19 @@
+     branch_id: branchFilter,
+     pageSize: 100,
+   });
+-  const [inventory, setInventory] = useState<RawMaterialInventory[]>([]);
+-  const [batches, setBatches] = useState<RawMaterialBatch[]>([]);
++  const [inventory, setInventory] = useState<WarehouseRawInventory[]>([]);
++  const [batches, setBatches] = useState<WarehouseRawBatch[]>([]);
+   const [units, setUnits] = useState<Unit[]>([]);
+   const [branches, setBranches] = useState<Branch[]>([]);
++  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+   const [loading, setLoading] = useState(true);
+   const [search, setSearch] = useState('');
+   const [stockBranch, setStockBranch] = useState(branchFilter || '');
++  const [stockWarehouse, setStockWarehouse] = useState('');
+ 
+   const [form, setForm] = useState<MaterialForm>(EMPTY_FORM);
+   const [modalOpen, setModalOpen] = useState(false);
+-  const [adjustTarget, setAdjustTarget] = useState<RawMaterialInventory | null>(null);
++  const [adjustTarget, setAdjustTarget] = useState<WarehouseRawInventory | null>(null);
+   const [adjustQty, setAdjustQty] = useState(0);
+   const [adjustReason, setAdjustReason] = useState('');
+   const [deleteId, setDeleteId] = useState<string | null>(null);
+@@ -71,16 +83,18 @@
+   async function loadMeta() {
+     setLoading(true);
+     try {
+-      const [inv, b, u, br] = await Promise.all([
+-        supabase.from('raw_material_inventory').select('*, raw_material:raw_materials(*), branch:branches(*)').order('updated_at', { ascending: false }),
+-        supabase.from('raw_material_batches').select('*, raw_material:raw_materials(*), branch:branches(*)').order('created_at', { ascending: false }),
++      const [inv, b, u, br, wh] = await Promise.all([
++        supabase.from('raw_material_warehouse_inventory').select('*, raw_material:raw_materials(*), branch:branches(*), warehouse:warehouses(*)').order('updated_at', { ascending: false }),
++        supabase.from('raw_material_batches').select('*, raw_material:raw_materials(*), branch:branches(*), warehouse:warehouses(*)').order('created_at', { ascending: false }),
+         supabase.from('measurement_units').select('*').eq('is_active', true).order('name'),
+         supabase.from('branches').select('*').eq('is_active', true).order('name'),
++        supabase.from('warehouses').select('*').eq('is_active', true).order('name'),
+       ]);
+-      setInventory((inv.data as RawMaterialInventory[]) || []);
+-      setBatches((b.data as RawMaterialBatch[]) || []);
++      setInventory((inv.data as WarehouseRawInventory[]) || []);
++      setBatches((b.data as WarehouseRawBatch[]) || []);
+       setUnits((u.data as Unit[]) || []);
+       setBranches((br.data as Branch[]) || []);
++      setWarehouses((wh.data as Warehouse[]) || []);
+     } finally {
+       setLoading(false);
+     }
+@@ -98,8 +112,15 @@
+     return m.name.toLowerCase().includes(q) || (m.code || '').toLowerCase().includes(q) || (m.category || '').toLowerCase().includes(q);
+   });
+ 
+-  const filteredStock = inventory.filter((i) => !stockBranch || i.branch_id === stockBranch);
+-  const filteredBatches = batches.filter((b) => !stockBranch || b.branch_id === stockBranch);
++  const filteredStock = inventory.filter((i) =>
++    (!stockBranch || i.branch_id === stockBranch) &&
++    (!stockWarehouse || i.warehouse_id === stockWarehouse)
++  );
++  const filteredBatches = batches.filter((b) =>
++    (!stockBranch || b.branch_id === stockBranch) &&
++    (!stockWarehouse || b.warehouse_id === stockWarehouse)
++  );
++  const stockWarehouseOptions = warehouses.filter((warehouse) => !stockBranch || warehouse.branch_id === stockBranch);
+ 
+   const openAdd = () => { setForm({ ...EMPTY_FORM, branch_id: branchFilter || '' }); setModalOpen(true); };
+   const openEdit = (m: RawMaterial) => {
+@@ -149,7 +170,7 @@
+     reloadMaterials();
+   };
+ 
+-  const openAdjust = (inv: RawMaterialInventory) => {
++  const openAdjust = (inv: WarehouseRawInventory) => {
+     setAdjustTarget(inv);
+     setAdjustQty(Number(inv.quantity));
+     setAdjustReason('');
+@@ -157,16 +178,21 @@
+ 
+   const saveAdjust = async () => {
+     if (!adjustTarget) return;
++    if (!adjustTarget.warehouse_id) {
++      show(isAr ? 'المستودع مطلوب لتسوية رصيد الخامة' : 'Warehouse is required to adjust raw material stock', 'error');
++      return;
++    }
+     const { data, error } = await api.inventory.adjustRawStock({
+       p_raw_material_id: adjustTarget.raw_material_id,
+       p_branch_id: adjustTarget.branch_id,
++      p_warehouse_id: adjustTarget.warehouse_id,
+       p_new_quantity: adjustQty,
+       p_reason: adjustReason || null,
+     });
