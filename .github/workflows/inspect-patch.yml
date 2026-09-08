@@ -1,0 +1,38 @@
+name: Inspect uploaded patch source
+
+on:
+  push:
+    branches: ["Premieros-patch-1-verify"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect-source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract uploaded source
+        run: |
+          rm -rf extracted-source
+          mkdir -p extracted-source
+          unzip -q johna-s.zip -d extracted-source
+          test -f extracted-source/package.json
+          test -d extracted-source/src
+      - name: Verify database identity
+        working-directory: extracted-source
+        env:
+          SUPABASE_PROJECT_REF: scpovyrqmsbiduanykod
+          VITE_SUPABASE_URL: https://scpovyrqmsbiduanykod.supabase.co
+        run: node scripts/db/verify-database-identity.js
+      - name: Upload exact source snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: Premieros-patch-1-source
+          path: |
+            extracted-source/src
+            extracted-source/package.json
+            extracted-source/vite.config.ts
+            extracted-source/scripts/db/verify-database-identity.js
+          if-no-files-found: error
