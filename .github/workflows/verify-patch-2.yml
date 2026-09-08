@@ -21,6 +21,7 @@ jobs:
           mkdir -p app
           unzip -q johna-s.zip -d app
           test -f app/package.json
+          grep -q '"@testing-library/dom"' app/package.json
           test -d app/src
           test -f app/supabase/migrations/20260908150000_unify_warehouse_inventory_and_pos_availability.sql
           test -f app/tests/unit/warehouseInventoryUnifiedContract.test.ts
