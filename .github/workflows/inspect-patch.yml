@@ -1,4 +1,4 @@
-name: Inspect uploaded patch source
+name: Verify uploaded patch source
 
 on:
   push:
@@ -9,30 +9,50 @@ permissions:
   contents: read
 
 jobs:
-  inspect-source:
+  verify-source:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Extract uploaded source
         run: |
-          rm -rf extracted-source
-          mkdir -p extracted-source
-          unzip -q johna-s.zip -d extracted-source
-          test -f extracted-source/package.json
-          test -d extracted-source/src
+          rm -rf app
+          mkdir -p app
+          unzip -q johna-s.zip -d app
+          test -f app/package.json
+          test -d app/src
+      - name: Apply warehouse inventory patch
+        run: |
+          base64 -d patches/warehouse_inventory_fix.patch.gz.b64 | gzip -d > /tmp/warehouse_inventory_fix.patch
+          cd app
+          patch -p1 < /tmp/warehouse_inventory_fix.patch
       - name: Verify database identity
-        working-directory: extracted-source
+        working-directory: app
         env:
           SUPABASE_PROJECT_REF: scpovyrqmsbiduanykod
           VITE_SUPABASE_URL: https://scpovyrqmsbiduanykod.supabase.co
         run: node scripts/db/verify-database-identity.js
-      - name: Upload exact source snapshot
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        working-directory: app
+        run: |
+          npm install --legacy-peer-deps --no-audit --no-fund
+          npm install --legacy-peer-deps --no-save --no-audit --no-fund react-is@18.3.1
+      - name: Typecheck
+        working-directory: app
+        run: npm run typecheck
+      - name: Build
+        working-directory: app
+        env:
+          VITE_BASE_PATH: /55/
+          VITE_SUPABASE_URL: https://scpovyrqmsbiduanykod.supabase.co
+          VITE_SUPABASE_ANON_KEY: sb_publishable_r1Qbehu-uzsQo-8vOr77OQ_Tzj6K_Jm
+        run: npm run build
+      - name: Upload patched source
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Premieros-patch-1-source
-          path: |
-            extracted-source/src
-            extracted-source/package.json
-            extracted-source/vite.config.ts
-            extracted-source/scripts/db/verify-database-identity.js
+          name: Premieros-patch-1-patched-source
+          path: app/src
           if-no-files-found: error
