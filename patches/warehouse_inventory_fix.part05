@@ -1,0 +1,24 @@
+--- a/src/features/inventory/pages/InventoryPage.tsx
++++ b/src/features/inventory/pages/InventoryPage.tsx
+@@ -31,8 +31,8 @@
+ };
+ 
+ type InventoryRow =
+-  | { kind: 'product'; inventory: Inventory }
+-  | { kind: 'raw'; inventory: RawWarehouseStock };
++  | { id: string; kind: 'product'; inventory: Inventory }
++  | { id: string; kind: 'raw'; inventory: RawWarehouseStock };
+ 
+ export function InventoryPage() {
+   const { t, lang } = useLanguage();
+@@ -91,8 +91,8 @@
+ 
+   const rows = useMemo<InventoryRow[]>(
+     () => [
+-      ...items.map((inventory) => ({ kind: 'product' as const, inventory })),
+-      ...rawStock.map((inventory) => ({ kind: 'raw' as const, inventory })),
++      ...items.map((inventory) => ({ id: inventory.id, kind: 'product' as const, inventory })),
++      ...rawStock.map((inventory) => ({ id: inventory.id, kind: 'raw' as const, inventory })),
+     ],
+     [items, rawStock],
+   );
