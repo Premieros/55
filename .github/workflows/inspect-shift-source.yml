@@ -1,0 +1,31 @@
+name: Inspect Shift Source
+
+on:
+  push:
+    branches: ["fix/shift-sales-report"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract snapshot
+        run: |
+          rm -rf app out
+          mkdir -p app out
+          unzip -q johna-s.zip -d app
+          find app/src -type f \( -iname '*shift*.ts' -o -iname '*shift*.tsx' -o -iname '*user*performance*.ts' -o -iname '*user*performance*.tsx' \) -print > out/files.txt
+          while IFS= read -r f; do
+            rel="${f#app/}"
+            mkdir -p "out/$(dirname "$rel")"
+            cp "$f" "out/$rel"
+          done < out/files.txt
+      - name: Upload inspection
+        uses: actions/upload-artifact@v4
+        with:
+          name: shift-source-inspection
+          path: out
