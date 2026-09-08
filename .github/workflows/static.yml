@@ -37,6 +37,19 @@ jobs:
           test -f app/package.json
           test -d app/src
 
+      - name: Apply reviewed source overrides
+        run: |
+          if [ -d overrides ]; then
+            rsync -a overrides/ app/
+          fi
+
+      - name: Verify database identity
+        working-directory: app
+        env:
+          SUPABASE_PROJECT_REF: scpovyrqmsbiduanykod
+          VITE_SUPABASE_URL: https://scpovyrqmsbiduanykod.supabase.co
+        run: node scripts/db/verify-database-identity.js
+
       - name: Install dependencies
         working-directory: app
         run: |
