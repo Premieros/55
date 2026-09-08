@@ -20,11 +20,8 @@ jobs:
           unzip -q johna-s.zip -d app
           test -f app/package.json
           test -d app/src
-      - name: Apply warehouse inventory patch
-        run: |
-          base64 -d patches/warehouse_inventory_fix.patch.gz.b64 | gzip -d > /tmp/warehouse_inventory_fix.patch
-          cd app
-          patch -p1 < /tmp/warehouse_inventory_fix.patch
+      - name: Apply warehouse inventory overrides
+        run: tar -xzf overrides.tar.gz -C app
       - name: Verify database identity
         working-directory: app
         env:
