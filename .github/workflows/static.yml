@@ -37,21 +37,6 @@ jobs:
           test -f app/package.json
           test -d app/src
 
-      - name: Apply reviewed warehouse inventory patch
-        run: |
-          {
-            head -n -2 patches/warehouse_inventory_fix.part00
-            cat patches/warehouse_inventory_fix.part01
-            cat patches/warehouse_inventory_fix.part02
-            cat patches/warehouse_inventory_fix.part03
-            cat patches/warehouse_inventory_fix.part04
-          } > /tmp/warehouse_inventory_fix.patch
-          cd app
-          patch --dry-run -p1 < /tmp/warehouse_inventory_fix.patch
-          patch -p1 < /tmp/warehouse_inventory_fix.patch
-          patch --dry-run -p1 < ../patches/warehouse_inventory_fix.part05
-          patch -p1 < ../patches/warehouse_inventory_fix.part05
-
       - name: Verify database identity
         working-directory: app
         env:
