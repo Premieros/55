@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   materialize:
-    if: ${{ github.event.head_commit.message != 'fix: link shift reports to sales through shift operations' }}
+    if: "${{ github.event.head_commit.message != 'fix link shift reports through shift operations' }}"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -216,5 +216,5 @@ jobs:
           git config user.name Premier
           git config user.email sayed3la2@gmail.com
           git add johna-s.zip
-          git commit -m 'fix: link shift reports to sales through shift operations'
+          git commit -m 'fix link shift reports through shift operations'
           git push origin HEAD:fix/shift-sales-report
