@@ -1,0 +1,91 @@
+name: Verify OpenCode Release Candidate
+
+on:
+  push:
+    branches: ["development/opencode"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: pos55_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d pos55_test"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+
+    env:
+      SUPABASE_DB_URL: postgresql://postgres:postgres@127.0.0.1:5432/pos55_test
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/pos55_test
+      SUPABASE_PROJECT_REF: scpovyrqmsbiduanykod
+      VITE_SUPABASE_URL: https://scpovyrqmsbiduanykod.supabase.co
+      VITE_SUPABASE_ANON_KEY: sb_publishable_r1Qbehu-uzsQo-8vOr77OQ_Tzj6K_Jm
+      VITE_BASE_PATH: /55/
+      PGPASSWORD: postgres
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Verify source layout and database identity
+        run: |
+          test -d src
+          test -d tests
+          test -d supabase
+          test -f package.json
+          test ! -f johna-s.zip
+          node scripts/db/verify-database-identity.js
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: |
+          npm install --legacy-peer-deps --no-audit --no-fund
+          npm install --legacy-peer-deps --no-save --no-audit --no-fund react-is@18.3.1
+
+      - name: Prepare fresh local database
+        run: |
+          psql -h 127.0.0.1 -U postgres -d pos55_test -v ON_ERROR_STOP=1 -f supabase/ci/stub_auth.sql
+          count=0
+          for f in $(find supabase/migrations -maxdepth 1 -type f -name '*.sql' | sort); do
+            echo "Applying $f"
+            psql -h 127.0.0.1 -U postgres -d pos55_test -v ON_ERROR_STOP=1 -f "$f" >/tmp/migration.log 2>&1 || {
+              cat /tmp/migration.log
+              exit 1
+            }
+            count=$((count+1))
+          done
+          echo "Applied migrations: $count"
+
+      - name: Verify schema contract
+        run: node scripts/db/verify-schema.js
+
+      - name: Integration tests
+        run: npm run test:integration
+
+      - name: Typecheck all
+        run: npm run typecheck:all
+
+      - name: Unit and component tests
+        run: npm test
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
