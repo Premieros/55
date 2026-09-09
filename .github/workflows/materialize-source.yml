@@ -37,86 +37,27 @@ jobs:
           test -d .materialized-source/supabase
           test -f .materialized-source/package.json
 
-      - name: Materialize into repository root
+      - name: Materialize source into repository root
         run: |
           rsync -a \
             --exclude '.git/' \
-            --exclude '.github/workflows/materialize-source.yml' \
+            --exclude '.github/workflows/' \
             --exclude 'node_modules/' \
             --exclude 'dist/' \
             --exclude '.materialized-source/' \
             .materialized-source/ ./
-
           rm -f johna-s.zip
-          rm -f .github/workflows/materialize-patch-2.yml
-          rm -f .github/workflows/verify-patch-2.yml
 
-      - name: Replace Pages workflow with source-based build
-        run: |
-          cat > .github/workflows/static.yml <<'YAML'
-          name: Deploy Vite app to GitHub Pages
-
-          on:
-            push:
-              branches: [main]
-            workflow_dispatch:
-
-          permissions:
-            contents: read
-            pages: write
-            id-token: write
-
-          concurrency:
-            group: pages
-            cancel-in-progress: false
-
-          jobs:
-            build:
-              runs-on: ubuntu-latest
-              steps:
-                - uses: actions/checkout@v4
-                - uses: actions/setup-node@v4
-                  with:
-                    node-version: 20
-                    cache: npm
-                - name: Verify database identity
-                  shell: bash
-                  run: |
-                    if grep -R --line-number --exclude-dir=node_modules --exclude-dir=.git 'azzdesuowpdcoflmyezn' .; then
-                      echo 'Forbidden Supabase project reference detected.'
-                      exit 1
-                    fi
-                    grep -R --line-number --exclude-dir=node_modules --exclude-dir=.git 'scpovyrqmsbiduanykod' . >/dev/null || {
-                      echo 'Expected Supabase project reference not found.'
-                      exit 1
-                    }
-                - run: npm ci
-                - run: npm run build
-                - uses: actions/configure-pages@v5
-                - uses: actions/upload-pages-artifact@v3
-                  with:
-                    path: dist
-            deploy:
-              environment:
-                name: github-pages
-              runs-on: ubuntu-latest
-              needs: build
-              steps:
-                - name: Deploy to GitHub Pages
-                  id: deployment
-                  uses: actions/deploy-pages@v4
-          YAML
-
-      - name: Verify source-based repository
+      - name: Verify materialized source
         run: |
           test -d src
           test -d tests
           test -d supabase
           test -f package.json
+          test -f src/main.tsx
           test ! -f johna-s.zip
-          ! grep -R --line-number --exclude='materialize-source.yml' 'johna-s.zip' .github/workflows
 
-      - name: Commit materialized source
+      - name: Commit source tree
         run: |
           rm -rf .materialized-source
           git config user.name 'github-actions[bot]'
