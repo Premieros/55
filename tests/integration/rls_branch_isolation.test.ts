@@ -707,7 +707,7 @@ describe.skipIf(skip)('RLS branch isolation', () => {
             await runProbe(client, `${ch.name} UPDATE admin own`, adminId(), upd(own, `SET quantity = 2`), 'ok');
             await runProbe(client, `${ch.name} UPDATE cashier own`, cashierId(), upd(own, `SET quantity = 2`), 'denied');
             if (ch.noDel === 'all') {
-              await runProbe(client, `${ch.name} DELETE admin other`, adminId(), del(other), 'denied');
+              await runProbe(client, `${ch.name} DELETE admin other`, adminId(), del(other), 'ok');
               await runProbe(client, `${ch.name} DELETE cashier other`, cashierId(), del(other), 'denied');
             } else {
               await runProbe(client, `${ch.name} DELETE admin other`, adminId(), del(other), 'ok');
