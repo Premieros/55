@@ -594,8 +594,18 @@ describe.skipIf(skip)('RLS branch isolation', () => {
         ins: () => ({ sql: `INSERT INTO public.warehouse_transfer_items (transfer_id, product_id, quantity) VALUES ($1, $2, 1)`, paramsA: [ids.rows.warehouse_transfers.own, ids.prodA], paramsB: [ids.rows.warehouse_transfers.other, ids.prodB] }),
       },
       {
-        name: 'recipe_items', key: 'recipe_items', parent: 'recipes', fk: 'recipe_id', mode: 'parentWrite', noDel: 'all',
-        ins: () => ({ sql: `INSERT INTO public.recipe_items (recipe_id, raw_material_id, quantity) VALUES ($1, $2, 1)`, paramsA: [ids.rows.recipes.own, ids.rm], paramsB: [ids.rows.recipes.other, ids.rmB] }),
+        name: 'recipe_items', key: 'recipe_items', parent: 'recipes', fk: 'recipe_id', mode: 'permRecipes', noDel: 'all',
+        ins: () => ({
+          sql: `WITH fresh_rm AS (
+            INSERT INTO public.raw_materials (code, name, branch_id)
+            SELECT 'RI-' || gen_random_uuid()::text || '-' || left($2::text, 8), 'Recipe probe', r.branch_id
+            FROM public.recipes r WHERE r.id = $1
+            RETURNING id
+          )
+          INSERT INTO public.recipe_items (recipe_id, raw_material_id, quantity)
+          SELECT $1, id, 1 FROM fresh_rm`,
+          paramsA: [ids.rows.recipes.own, ids.rm], paramsB: [ids.rows.recipes.other, ids.rmB],
+        }),
       },
       {
         name: 'journal_entry_lines', key: 'journal_entry_lines', parent: 'journal_entries', fk: 'journal_entry_id', mode: 'parentWrite', noDel: 'all', updSet: 'SET debit = 0',
@@ -871,12 +881,22 @@ describe.skipIf(skip)('RLS branch isolation', () => {
       );
     });
 
-    t('guard_role_permissions: branch managers cannot mint admin-only roles (044)', async () => {
+    t('guard_role_permissions: role creation requires roles.permissions.manage and forbids escalation', async () => {
       const ins = (perms: string) =>
         `INSERT INTO public.roles (role, name_ar, name_en, permissions) VALUES ('${uniq('RG')}', 'X', 'Y', '${perms}'::jsonb)`;
+
+      // Permission-first contract: managing settings does not imply permission
+      // to mint roles. The dedicated role-permission capability is required.
+      await runProbe(client, 'roles INSERT bm without roles.permissions.manage', bmId(), ins('["settings.manage"]'), 'denied');
+
+      // Grant only the dedicated role-management capability in the fixture.
+      // This runs as the outer postgres test session and rolls back afterwards.
+      await client.query(
+        `UPDATE public.roles SET permissions = permissions || '["roles.permissions.manage"]'::jsonb WHERE role = 'branch_manager'`,
+      );
       await runProbe(client, 'roles INSERT bm with owned settings.manage', bmId(), ins('["settings.manage"]'), 'ok');
       await runProbe(client, 'roles INSERT bm with unowned audit.view', bmId(), ins('["audit.view"]'), 'denied');
-      await runProbe(client, 'roles INSERT admin plain', adminId(), ins('["pos.sell"]'), 'ok');
+      await runProbe(client, 'roles INSERT super admin canonical permission', adminId(), ins('["pos.view"]'), 'ok');
     });
   });
 
