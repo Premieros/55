@@ -1,0 +1,217 @@
+import { useEffect, useMemo, useState } from 'react';
+import { Bike, Car, ListOrdered, Search, ShoppingBag, Utensils } from 'lucide-react';
+import { useLanguage } from '@/context/LanguageContext';
+import type { DiningTable, Order, OrderItem } from '@/lib/types';
+import type { OrderKitchenSend } from '../../types';
+import { TableCard } from './TableCard';
+
+type TableFilter = 'all' | 'available' | 'occupied';
+
+interface PosTablesSidebarProps {
+  tables: DiningTable[];
+  ordersByTable: Record<string, Order[]>;
+  itemsByOrder: Record<string, OrderItem[]>;
+  kitchenSendsByOrder: Record<string, OrderKitchenSend[]>;
+  currency: string;
+  activeTableId: string | null;
+  activeOrderId: string | null;
+  collapsed: boolean;
+  onToggleCollapse: () => void;
+  onSelectTable: (table: DiningTable) => void;
+  onTransferOrder?: (order: Order, table: DiningTable) => void;
+  onStartQuick?: () => void;
+  onStartDelivery?: () => void;
+  onStartDriveThru?: () => void;
+  onOpenActiveOrders?: () => void;
+  onSelectTakeaway?: () => void;
+  onSelectDelivery?: () => void;
+  activeOrderType?: string;
+}
+
+export function PosTablesSidebar(props: PosTablesSidebarProps) {
+  const {
+    tables,
+    ordersByTable,
+    itemsByOrder,
+    kitchenSendsByOrder,
+    currency,
+    activeTableId,
+    activeOrderId,
+    collapsed,
+    onToggleCollapse,
+    onSelectTable,
+    onTransferOrder,
+    onStartQuick,
+    onStartDelivery,
+    onStartDriveThru,
+    onOpenActiveOrders,
+    onSelectTakeaway,
+    onSelectDelivery,
+  } = props;
+  const { lang } = useLanguage();
+  const isAr = lang === 'ar';
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filter, setFilter] = useState<TableFilter>('all');
+  const [flowStarted, setFlowStarted] = useState(false);
+
+  useEffect(() => {
+    const handleExternalFlowStart = () => setFlowStarted(true);
+    const handleShowLanding = () => setFlowStarted(false);
+    window.addEventListener('pos:order-flow-started', handleExternalFlowStart);
+    window.addEventListener('pos:show-tables-landing', handleShowLanding);
+    return () => {
+      window.removeEventListener('pos:order-flow-started', handleExternalFlowStart);
+      window.removeEventListener('pos:show-tables-landing', handleShowLanding);
+    };
+  }, []);
+
+  const occupiedCount = useMemo(
+    () => tables.filter((table) => (ordersByTable[table.id] || []).length > 0 || table.status === 'occupied').length,
+    [tables, ordersByTable],
+  );
+  const availableCount = Math.max(0, tables.length - occupiedCount);
+
+  const filteredTables = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return tables.filter((table) => {
+      const orders = ordersByTable[table.id] || [];
+      const occupied = orders.length > 0 || table.status === 'occupied';
+      if (filter === 'available' && occupied) return false;
+      if (filter === 'occupied' && !occupied) return false;
+      if (!q) return true;
+      return table.name.toLowerCase().includes(q) || orders.some((order) => order.order_number?.toLowerCase().includes(q));
+    });
+  }, [tables, ordersByTable, searchQuery, filter]);
+
+  // The POS is tables-first. Once a real table/order is selected, or the
+  // operator explicitly starts a quick non-table order, the landing disappears
+  // and gives the entire selling area back to products + cart.
+  if (activeTableId || activeOrderId || flowStarted) return null;
+
+  if (collapsed) {
+    return (
+      <aside className="flex h-full w-14 shrink-0 flex-col items-center border-e border-ui-border bg-ui-surface py-3">
+        <button type="button" onClick={onToggleCollapse} title={isAr ? 'إظهار الطاولات' : 'Show tables'} className="flex h-10 w-10 items-center justify-center rounded-xl border border-ui-border bg-ui-page text-ui-text"><Utensils className="h-5 w-5" /></button>
+        <span className="mt-2 rounded-full bg-ui-primary px-1.5 text-[10px] font-black text-ui-primary-fg">{occupiedCount}</span>
+      </aside>
+    );
+  }
+
+  const filters: Array<{ id: TableFilter; ar: string; en: string; count: number }> = [
+    { id: 'all', ar: 'الكل', en: 'All', count: tables.length },
+    { id: 'available', ar: 'متاحة', en: 'Available', count: availableCount },
+    { id: 'occupied', ar: 'مشغولة', en: 'Occupied', count: occupiedCount },
+  ];
+
+  const startQuick = () => {
+    const action = onStartQuick || onSelectTakeaway;
+    if (!action) return;
+    action();
+    setFlowStarted(true);
+  };
+
+  const startDelivery = () => {
+    if (onStartDelivery) {
+      onStartDelivery();
+      return;
+    }
+    if (!onSelectDelivery) return;
+    onSelectDelivery();
+    setFlowStarted(true);
+  };
+
+  return (
+    <aside data-testid="pos-tables-workspace" className="flex h-full min-h-0 w-screen min-w-[100vw] max-w-none shrink-0 flex-col border-e border-ui-border bg-ui-surface">
+      <div className="shrink-0 border-b border-ui-border px-4 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-black text-ui-text">{isAr ? 'الطاولات' : 'Tables'}</h2>
+            <p className="mt-0.5 text-[11px] font-bold text-ui-subtle">{isAr ? 'اختر طاولة أو ابدأ نوع طلب من الاختصارات' : 'Choose a table or start an order from the shortcuts'}</p>
+          </div>
+
+          <div data-testid="pos-tables-landing-actions" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {(onStartQuick || onSelectTakeaway) && (
+              <button
+                type="button"
+                data-testid="pos-start-quick-order"
+                onClick={startQuick}
+                className="flex h-11 items-center justify-center gap-2 rounded-xl bg-ui-primary px-3 text-xs font-black text-ui-primary-fg shadow-ui-sm transition hover:bg-ui-primary-hover active:scale-[0.98]"
+              >
+                <ShoppingBag className="h-4 w-4" />
+                {isAr ? 'طلب سريع' : 'Quick order'}
+              </button>
+            )}
+            {(onStartDelivery || onSelectDelivery) && (
+              <button
+                type="button"
+                data-testid="pos-tables-start-delivery"
+                onClick={startDelivery}
+                className="flex h-11 items-center justify-center gap-2 rounded-xl border border-ui-border bg-ui-page px-3 text-xs font-black text-ui-text transition hover:border-ui-primary hover:text-ui-primary active:scale-[0.98]"
+              >
+                <Bike className="h-4 w-4" />
+                {isAr ? 'دليفري' : 'Delivery'}
+              </button>
+            )}
+            {onStartDriveThru && (
+              <button
+                type="button"
+                data-testid="pos-tables-start-drive-thru"
+                onClick={onStartDriveThru}
+                className="flex h-11 items-center justify-center gap-2 rounded-xl border border-ui-border bg-ui-page px-3 text-xs font-black text-ui-text transition hover:border-ui-primary hover:text-ui-primary active:scale-[0.98]"
+              >
+                <Car className="h-4 w-4" />
+                {isAr ? 'درايف ثرو' : 'Drive thru'}
+              </button>
+            )}
+            {onOpenActiveOrders && (
+              <button
+                type="button"
+                data-testid="pos-tables-active-orders"
+                onClick={onOpenActiveOrders}
+                className="flex h-11 items-center justify-center gap-2 rounded-xl border border-ui-border bg-ui-page px-3 text-xs font-black text-ui-text transition hover:border-ui-primary hover:text-ui-primary active:scale-[0.98]"
+              >
+                <ListOrdered className="h-4 w-4" />
+                {isAr ? 'الطلبات النشطة' : 'Active orders'}
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="mt-3 flex flex-col gap-2 lg:flex-row lg:items-center">
+          <div className="relative min-w-0 flex-1">
+            <Search className="absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ui-muted" />
+            <input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder={isAr ? 'ابحث برقم الطاولة أو الطلب...' : 'Search table or order...'} className="h-11 w-full rounded-xl border border-ui-border bg-ui-page ps-10 pe-3 text-sm font-bold text-ui-text outline-none focus:border-ui-primary" />
+          </div>
+
+          <div className="grid min-w-[310px] grid-cols-3 gap-1.5" data-testid="pos-table-filters">
+            {filters.map((item) => (
+              <button key={item.id} type="button" onClick={() => setFilter(item.id)} className={`rounded-lg border px-3 py-2.5 text-[11px] font-black transition ${filter === item.id ? 'border-ui-primary bg-ui-primary text-ui-primary-fg' : 'border-ui-border bg-ui-page text-ui-muted hover:border-ui-primary'}`}>
+                {isAr ? item.ar : item.en} <span className="ms-1 opacity-70">{item.count}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain p-4">
+        {filteredTables.length > 0 ? (
+          <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 2xl:grid-cols-10">
+            {filteredTables.map((table) => (
+              <TableCard
+                key={table.id}
+                table={table}
+                orders={ordersByTable[table.id] || []}
+                itemsByOrder={itemsByOrder}
+                kitchenSendsByOrder={kitchenSendsByOrder}
+                currency={currency}
+                isSelected={activeTableId === table.id}
+                onSelect={onSelectTable}
+                onTransfer={onTransferOrder}
+              />
+            ))}
+          </div>
+        ) : <div className="py-16 text-center text-sm font-bold text-ui-muted">{isAr ? 'لا توجد طاولات مطابقة' : 'No matching tables'}</div>}
+      </div>
+    </aside>
+  );
+}
