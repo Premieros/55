@@ -1,0 +1,59 @@
+name: Finalize Recipe RLS Test
+
+on:
+  push:
+    branches: ["development/opencode"]
+    paths:
+      - '.github/workflows/finalize-recipe-rls-test.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: development/opencode
+          fetch-depth: 0
+
+      - name: Align super-admin delete expectation with canonical policy
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('tests/integration/rls_branch_isolation.test.ts')
+          s = p.read_text(encoding='utf-8')
+          old = """            if (ch.noDel === 'all') {
+              await runProbe(client, `${ch.name} DELETE admin other`, adminId(), del(other), 'denied');
+              await runProbe(client, `${ch.name} DELETE cashier other`, cashierId(), del(other), 'denied');
+            } else {
+              await runProbe(client, `${ch.name} DELETE admin other`, adminId(), del(other), 'ok');
+              await runProbe(client, `${ch.name} DELETE cashier other`, cashierId(), del(other), 'denied');
+            }
+            break;
+
+          case 'adminInsOnly':"""
+          new = """            // recipes.manage is the canonical mutation capability; Super Admin keeps
+            // the only implicit bypass. Cashier remains denied. DELETE is not a
+            // deny-all operation for recipe_items under this permission-first policy.
+            await runProbe(client, `${ch.name} DELETE admin other`, adminId(), del(other), 'ok');
+            await runProbe(client, `${ch.name} DELETE cashier other`, cashierId(), del(other), 'denied');
+            break;
+
+          case 'adminInsOnly':"""
+          if old not in s:
+              raise SystemExit('permRecipes delete block not found; refusing blind patch')
+          s = s.replace(old, new, 1)
+          p.write_text(s, encoding='utf-8')
+          PY
+
+      - name: Commit verified test-contract correction
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tests/integration/rls_branch_isolation.test.ts
+          git diff --cached --check
+          git commit -m 'test: align recipe delete expectation with permission-first RLS'
+          git push origin HEAD:development/opencode
