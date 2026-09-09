@@ -99,51 +99,37 @@ REVOKE ALL ON FUNCTION public.enqueue_print_job(uuid,text,text,text,text,text,uu
 GRANT EXECUTE ON FUNCTION public.enqueue_print_job(uuid,text,text,text,text,text,uuid,uuid,jsonb)
   TO authenticated, service_role;
 
--- 2) Production process_purchase still contains legacy role-name authorization.
--- Patch only the known stale blocks; if the function is already canonical this is a no-op.
+-- 2) Production process_purchase may still contain legacy role-name authorization.
+-- Rewrite by stable structural markers so CRLF/formatting drift cannot turn a safe
+-- compatibility migration into a blind replacement. If markers drift, fail closed.
 DO $rewrite$
 DECLARE
   v_sig regprocedure := 'public.process_purchase(text,uuid,uuid,uuid,numeric,numeric,numeric,numeric,numeric,text,text,text,jsonb)'::regprocedure;
   v_def text;
-  v_old text;
-  v_new text;
+  p1 integer;
+  p2 integer;
+  p3 integer;
+  canonical_perm text := E'  IF NOT public.is_pos_admin() AND NOT public.can_permission(''purchases.manage'') THEN\n    RETURN jsonb_build_object(''success'', false, ''error'', ''NOT_ALLOWED'', ''detail'', ''صلاحية إدارة المشتريات مطلوبة لتسجيل فواتير الشراء'');\n  END IF;\n\n';
+  canonical_branch text := E'  IF NOT public.is_pos_admin() AND NOT public.user_may_access_branch(p_branch_id) THEN\n    RETURN jsonb_build_object(''success'', false, ''error'', ''BRANCH_MISMATCH'', ''detail'', ''المستخدم غير مخول لهذا الفرع'');\n  END IF;\n\n';
 BEGIN
   SELECT pg_get_functiondef(v_sig) INTO v_def;
 
   IF position('get_user_role()' in v_def) > 0 OR position('is_platform_admin()' in v_def) > 0 THEN
-    v_old := $old$IF NOT (
-       public.is_pos_admin()
-       OR public.is_platform_admin()
-       OR public.can_permission('purchases.manage')
-       OR public.get_user_role() IN ('super_admin', 'owner', 'admin', 'branch_manager', 'warehouse_manager', 'accountant', 'production_manager')
-     ) THEN
-    RETURN jsonb_build_object('success', false, 'error', 'NOT_ALLOWED', 'detail', 'صلاحية إدارة المشتريات مطلوبة لتسجيل فواتير الشراء');
-  END IF;$old$;
-    v_new := $new$IF NOT public.is_pos_admin() AND NOT public.can_permission('purchases.manage') THEN
-    RETURN jsonb_build_object('success', false, 'error', 'NOT_ALLOWED', 'detail', 'صلاحية إدارة المشتريات مطلوبة لتسجيل فواتير الشراء');
-  END IF;$new$;
-
-    IF position(v_old in v_def) = 0 THEN
-      RAISE EXCEPTION 'process_purchase production permission gate drifted; refusing unsafe rewrite';
+    p1 := position('  IF NOT (' in v_def);
+    p2 := position('  IF NOT public.is_pos_admin() THEN' in v_def);
+    IF p1 = 0 OR p2 = 0 OR p2 <= p1 THEN
+      RAISE EXCEPTION 'process_purchase permission markers not found; refusing unsafe rewrite';
     END IF;
-    v_def := replace(v_def, v_old, v_new);
+    v_def := substring(v_def from 1 for p1 - 1) || canonical_perm || substring(v_def from p2);
   END IF;
 
   IF position('SELECT branch_id INTO v_user_branch FROM public.users WHERE id = auth.uid();' in v_def) > 0 THEN
-    v_old := $old$IF NOT public.is_pos_admin() THEN
-    SELECT branch_id INTO v_user_branch FROM public.users WHERE id = auth.uid();
-    IF v_user_branch IS NOT NULL AND p_branch_id IS NOT NULL AND v_user_branch <> p_branch_id THEN
-      RETURN jsonb_build_object('success', false, 'error', 'BRANCH_MISMATCH', 'detail', 'المستخدم غير مخصص لهذا الفرع');
+    p2 := position('  IF NOT public.is_pos_admin() THEN' in v_def);
+    p3 := position(E'  IF v_inv_no = '''' THEN' in v_def);
+    IF p2 = 0 OR p3 = 0 OR p3 <= p2 THEN
+      RAISE EXCEPTION 'process_purchase branch markers not found; refusing unsafe rewrite';
     END IF;
-  END IF;$old$;
-    v_new := $new$IF NOT public.is_pos_admin() AND NOT public.user_may_access_branch(p_branch_id) THEN
-    RETURN jsonb_build_object('success', false, 'error', 'BRANCH_MISMATCH', 'detail', 'المستخدم غير مخول لهذا الفرع');
-  END IF;$new$;
-
-    IF position(v_old in v_def) = 0 THEN
-      RAISE EXCEPTION 'process_purchase production branch gate drifted; refusing unsafe rewrite';
-    END IF;
-    v_def := replace(v_def, v_old, v_new);
+    v_def := substring(v_def from 1 for p2 - 1) || canonical_branch || substring(v_def from p3);
   END IF;
 
   EXECUTE v_def;
