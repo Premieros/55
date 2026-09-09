@@ -61,6 +61,15 @@ jobs:
       - name: Prepare fresh local database
         run: |
           psql -h 127.0.0.1 -U postgres -d pos55_test -v ON_ERROR_STOP=1 -f supabase/ci/stub_auth.sql
+          psql -h 127.0.0.1 -U postgres -d pos55_test -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE TABLE IF NOT EXISTS public.schema_migrations (
+            id bigserial PRIMARY KEY,
+            version text NOT NULL UNIQUE,
+            name text NOT NULL,
+            checksum text NOT NULL,
+            applied_at timestamptz NOT NULL DEFAULT now()
+          );
+          SQL
           count=0
           for f in $(find supabase/migrations -maxdepth 1 -type f -name '*.sql' | sort); do
             echo "Applying $f"
