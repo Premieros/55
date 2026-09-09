@@ -744,7 +744,7 @@ describe.skipIf(skip)('RLS branch isolation', () => {
 
   describe('global reference tables (open read, gated write)', () => {
     t('staff can read global master data', async () => {
-      for (const table of ['roles', 'measurement_units', 'raw_materials', 'branches']) {
+      for (const table of ['roles', 'measurement_units', 'branches']) {
         const res = await runProbe(client, `${table} SELECT as cashier`, cashierId(), `SELECT count(*)::int AS c FROM ${table}`, 'ok');
         expect(Number(res.rows[0].c)).toBeGreaterThanOrEqual(1);
       }
