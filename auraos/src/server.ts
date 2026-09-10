@@ -1,7 +1,6 @@
 import * as dotenv from 'dotenv';
 import { createApp } from '@/app';
-import { testDatabaseConnection } from '@/config/database';
-import { pool } from '@/config/database';
+import { testDatabaseConnection, pool } from '@/config/database';
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import { initializeEventBroadcaster } from '@/shared/socket/eventBroadcaster';
@@ -14,15 +13,15 @@ import { initMonitoring } from '@/shared/monitoring/monitoring';
 dotenv.config();
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
+const JWT_ISSUER = 'auraos-core';
 
 // Start server
 async function startServer() {
   try {
-    // Test database connection before starting
+    // Fail closed: AuraOS must never advertise a ready server without its DB.
     const dbConnected = await testDatabaseConnection();
-
     if (!dbConnected) {
-      console.warn('⚠️  Database connection failed, but continuing...');
+      throw new Error('Database connection failed; refusing to start AuraOS');
     }
 
     // Initialise monitoring (Sentry if SENTRY_DSN is configured, else console)
@@ -30,10 +29,12 @@ async function startServer() {
 
     const app = createApp();
     const httpServer = createServer(app);
+    const allowedOrigins = env.CORS_ORIGIN.split(',').map((o) => o.trim()).filter(Boolean);
     const io = new SocketIOServer(httpServer, {
       cors: {
-        origin: '*',
+        origin: allowedOrigins,
         methods: ['GET', 'POST'],
+        credentials: true,
       },
     });
 
@@ -45,9 +46,7 @@ async function startServer() {
     io.on('connection', (socket) => {
       const token: string | undefined = socket.handshake.auth?.token;
 
-      // ── Public customers (no token): may subscribe ONLY to a specific order's
-      // room to receive live status for an order they placed. They cannot join
-      // tenant-wide rooms, so no cross-order or staff data leaks.
+      // Public customers (no token) may subscribe only to a specific order room.
       if (!token) {
         socket.on('track_order', (data: { orderNumber: string }) => {
           if (data?.orderNumber && typeof data.orderNumber === 'string') {
@@ -59,27 +58,27 @@ async function startServer() {
       }
 
       try {
-        const decoded = jwt.verify(token, env.JWT_SECRET) as {
+        const decoded = jwt.verify(token, env.JWT_SECRET, {
+          algorithms: ['HS256'],
+          issuer: JWT_ISSUER,
+        }) as {
           id: string;
           email: string;
           role: string;
           restaurantId: string;
         };
 
-        // Join the restaurant-scoped room so the socket receives broadcasts
-        // targeted at this tenant's restaurant.
+        // Only allow a socket to join the restaurant encoded in its signed JWT.
         socket.on('join_restaurant', (data: { restaurantId: string }) => {
-          if (data?.restaurantId) {
-            socket.join(`restaurant:${data.restaurantId}`);
+          if (data?.restaurantId && data.restaurantId === decoded.restaurantId) {
+            socket.join(`restaurant:${decoded.restaurantId}`);
           }
         });
 
         socket.on('disconnect', () => {
-          // socket.io automatically leaves all rooms on disconnect;
-          // no explicit cleanup needed here.
+          // socket.io automatically leaves all rooms on disconnect.
         });
       } catch {
-        // Token is invalid or expired — reject the connection
         socket.disconnect(true);
       }
     });
@@ -90,7 +89,7 @@ async function startServer() {
       console.log('╚═════════════════════════════════════════════╝\n');
       console.log(`Port: ${PORT}`);
       console.log(`Environment: ${process.env.NODE_ENV}`);
-      console.log(`Database: ${dbConnected ? 'Connected ✅' : 'Disconnected ⚠️'}`);
+      console.log('Database: Connected ✅');
       console.log('\n✨ Server is ready to accept requests');
       console.log('\n📝 Available endpoints:');
       console.log('   GET  /api/v1/health');
@@ -142,7 +141,6 @@ async function startServer() {
       console.log('   PUT  /api/v1/orders/:id (KITCHEN, ADMIN)');
       console.log('   DELETE /api/v1/orders/:id (admin only)');
       console.log('');
-      // Start background jobs (delay detector, inventory sync)
       startJobs();
     });
   } catch (error) {
@@ -153,7 +151,6 @@ async function startServer() {
 
 startServer();
 
-// Graceful shutdown
 process.on('SIGTERM', () => {
   console.log('\n🛑 SIGTERM received, shutting down gracefully...');
   stopJobs();
@@ -168,14 +165,10 @@ process.on('SIGINT', () => {
   process.exit(0);
 });
 
-// Catch unhandled promise rejections — log but don't crash (crash-only
-// philosophy can be opted into via process manager like pm2).
 process.on('unhandledRejection', (reason, promise) => {
   console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
-// Catch uncaught exceptions — attempt graceful shutdown before exiting
-// because the process is in an undefined state.
 process.on('uncaughtException', (error) => {
   console.error('❌ Uncaught Exception:', error);
   stopJobs();
