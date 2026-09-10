@@ -1,0 +1,141 @@
+name: AuraOS database bootstrap
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["development/auraos-preview"]
+    paths:
+      - ".github/auraos-bootstrap-trigger"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: auraos-database-bootstrap
+  cancel-in-progress: false
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: ${{ secrets.AURAOS_DATABASE_URL }}
+      AURAOS_EXPECTED_PROJECT_REF: limpprtlwtlvfwezkulq
+
+    steps:
+      - name: Checkout isolated AuraOS branch
+        uses: actions/checkout@v4
+        with:
+          ref: development/auraos-preview
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: auraos/package-lock.json
+
+      - name: Install AuraOS backend dependencies
+        working-directory: auraos
+        run: npm ci --no-audit --no-fund
+
+      - name: Fail closed if database identity or schema is unexpected
+        working-directory: auraos
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const { Pool } = require('pg');
+          const expected = process.env.AURAOS_EXPECTED_PROJECT_REF;
+          const raw = process.env.DATABASE_URL;
+          if (!raw) throw new Error('AURAOS_DATABASE_URL secret is missing');
+          const u = new URL(raw);
+          const identity = `${u.hostname} ${decodeURIComponent(u.username)}`;
+          if (!identity.includes(expected)) {
+            throw new Error(`DATABASE IDENTITY MISMATCH: expected ${expected}`);
+          }
+          if (!u.searchParams.has('sslmode')) u.searchParams.set('sslmode', 'require');
+          const pool = new Pool({ connectionString: u.toString(), connectionTimeoutMillis: 10000 });
+          (async () => {
+            const client = await pool.connect();
+            try {
+              const db = await client.query(`select current_database() as db, current_user as usr`);
+              const tables = await client.query(`
+                select tablename
+                from pg_tables
+                where schemaname = 'public'
+                order by tablename
+              `);
+              const names = tables.rows.map(r => r.tablename);
+              const hasLog = names.includes('migrations_log');
+              if (names.length > 0 && !hasLog) {
+                throw new Error(`Refusing bootstrap: public schema is not empty and has no AuraOS migrations_log (${names.length} tables found)`);
+              }
+              console.log(`✅ Preflight passed for dedicated AuraOS database; public tables before migration: ${names.length}`);
+              console.log(`✅ PostgreSQL connection established as ${db.rows[0].usr}`);
+            } finally {
+              client.release();
+              await pool.end();
+            }
+          })().catch(err => { console.error(`❌ ${err.message}`); process.exit(1); });
+          NODE
+
+      - name: Compile AuraOS backend before database write
+        working-directory: auraos
+        run: npm run build
+
+      - name: Apply AuraOS migrations 001 through 028
+        working-directory: auraos
+        run: npm run migrate
+
+      - name: Verify migrations, tenant role, and RLS
+        working-directory: auraos
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const { Pool } = require('pg');
+          const fs = require('fs');
+          const raw = process.env.DATABASE_URL;
+          const u = new URL(raw);
+          if (!u.searchParams.has('sslmode')) u.searchParams.set('sslmode', 'require');
+          const pool = new Pool({ connectionString: u.toString(), connectionTimeoutMillis: 10000 });
+          (async () => {
+            const client = await pool.connect();
+            try {
+              const expectedFiles = fs.readdirSync('migrations').filter(f => f.endsWith('.sql')).sort();
+              const applied = await client.query(`select migration_name from migrations_log order by migration_name`);
+              const appliedNames = applied.rows.map(r => r.migration_name);
+              const missing = expectedFiles.filter(x => !appliedNames.includes(x));
+              if (expectedFiles.length !== 28) throw new Error(`Expected 28 migration files, found ${expectedFiles.length}`);
+              if (missing.length) throw new Error(`Missing migrations: ${missing.join(', ')}`);
+
+              const role = await client.query(`select rolname, rolcanlogin, rolbypassrls from pg_roles where rolname = 'app_tenant'`);
+              if (role.rowCount !== 1) throw new Error('app_tenant role is missing');
+              if (role.rows[0].rolcanlogin || role.rows[0].rolbypassrls) throw new Error('app_tenant role is not fail-closed');
+
+              const membership = await client.query(`select pg_has_role(current_user, 'app_tenant', 'member') as ok`);
+              if (!membership.rows[0].ok) throw new Error('Current application DB role is not a member of app_tenant');
+
+              const rls = await client.query(`
+                select c.table_name, pc.relrowsecurity
+                from information_schema.columns c
+                join pg_class pc on pc.relname = c.table_name
+                join pg_namespace pn on pn.oid = pc.relnamespace and pn.nspname = c.table_schema
+                where c.table_schema = 'public'
+                  and c.column_name = 'restaurant_id'
+                  and pc.relkind = 'r'
+                order by c.table_name
+              `);
+              const unprotected = rls.rows.filter(r => !r.relrowsecurity).map(r => r.table_name);
+              if (unprotected.length) throw new Error(`RLS disabled on restaurant-scoped tables: ${unprotected.join(', ')}`);
+
+              console.log(`✅ ${appliedNames.length}/28 AuraOS migrations recorded`);
+              console.log(`✅ app_tenant exists, NOLOGIN, no BYPASSRLS, and membership is valid`);
+              console.log(`✅ RLS enabled on all ${rls.rows.length} public tables carrying restaurant_id`);
+            } finally {
+              client.release();
+              await pool.end();
+            }
+          })().catch(err => { console.error(`❌ ${err.message}`); process.exit(1); });
+          NODE
