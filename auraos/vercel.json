@@ -19,6 +19,10 @@
       "destination": "/api/index"
     },
     {
+      "source": "/api/index/socket.io/:path*",
+      "destination": "/api/index"
+    },
+    {
       "source": "/api/v1/:path*",
       "destination": "/api/index"
     }
