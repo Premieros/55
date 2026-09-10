@@ -72,7 +72,7 @@ jobs:
             const url = `${ROOT}#${route}`;
             try {
               await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-              await page.waitForTimeout(2200);
+              await page.waitForTimeout(1800);
               const body = (await page.locator('body').innerText().catch(() => '')) || '';
               const boundary = /Something went wrong|unexpected error occurred|Unexpected Application Error/i.test(body);
               const hardFailure = boundary || pageErrors.length > 0 || route5xx.length > 0;
@@ -96,9 +96,22 @@ jobs:
           for (const route of publicRoutes) await visit(route);
 
           await page.goto(`${ROOT}#/login`, { waitUntil: 'domcontentloaded', timeout: 30000 });
+          await page.waitForTimeout(500);
+
+          const htmlLang = await page.locator('html').getAttribute('lang');
+          const htmlDir = await page.locator('html').getAttribute('dir');
+          const storedLanguage = await page.evaluate(() => localStorage.getItem('auraos-language'));
+          if (htmlLang !== 'ar' || htmlDir !== 'rtl' || storedLanguage !== 'ar') {
+            failures.push({ route: 'ARABIC_DEFAULT', error: `Expected ar/rtl/ar, got ${htmlLang}/${htmlDir}/${storedLanguage}` });
+            console.log(`FAIL ARABIC_DEFAULT -> ${htmlLang}/${htmlDir}/${storedLanguage}`);
+          } else {
+            console.log('PASS ARABIC_DEFAULT -> lang=ar dir=rtl');
+          }
+
           await page.locator('input[type="email"]').fill('admin@demo-kitchen.local');
           await page.locator('input[type="password"]').fill('demo123');
-          await page.getByRole('button', { name: /sign in/i }).click();
+          const loginButton = page.getByRole('button', { name: /sign in|تسجيل الدخول|دخول/i });
+          await loginButton.click();
           await page.waitForTimeout(2500);
           if (page.url().includes('#/login')) {
             failures.push({ route: 'LOGIN', error: 'Demo admin login did not leave login screen', url: page.url() });
@@ -108,6 +121,24 @@ jobs:
           }
 
           for (const route of protectedRoutes) await visit(route);
+
+          await page.goto(`${ROOT}#/dashboard`, { waitUntil: 'domcontentloaded', timeout: 30000 });
+          const languageToggle = page.getByRole('button', { name: /english|en|عربي|العربية/i }).first();
+          if (await languageToggle.count()) {
+            await languageToggle.click();
+            await page.waitForTimeout(400);
+            const toggledLang = await page.locator('html').getAttribute('lang');
+            const toggledDir = await page.locator('html').getAttribute('dir');
+            if (toggledLang !== 'en' || toggledDir !== 'ltr') {
+              failures.push({ route: 'LANGUAGE_TOGGLE', error: `Expected en/ltr after toggle, got ${toggledLang}/${toggledDir}` });
+              console.log(`FAIL LANGUAGE_TOGGLE -> ${toggledLang}/${toggledDir}`);
+            } else {
+              console.log('PASS LANGUAGE_TOGGLE -> lang=en dir=ltr');
+            }
+          } else {
+            failures.push({ route: 'LANGUAGE_TOGGLE', error: 'Language toggle button not found' });
+            console.log('FAIL LANGUAGE_TOGGLE -> button not found');
+          }
 
           console.log('\n=== AURAOS SCREEN SMOKE SUMMARY ===');
           console.log(`Public routes: ${publicRoutes.length}`);
