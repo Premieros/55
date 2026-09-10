@@ -75,26 +75,38 @@ export class InventoryRepository {
   }
 
   /**
-   * Legacy finished-goods stock fallback. Recipe/BOM products are deliberately
-   * excluded because migration 031 consumes their raw ingredients atomically
-   * when the kitchen line becomes DONE. This prevents double consumption.
+   * Legacy finished-goods fallback. Before migration 031 exists, keep the old
+   * behavior. After it exists, BOM products are excluded because their raw
+   * ingredients are consumed by the migration's DONE trigger.
    */
   async decrementStockForMenuItem(
     restaurantId: string,
     menuItemId: string,
     quantity: number,
   ): Promise<InventoryItem | null> {
-    const result = await query(
-      `UPDATE inventory_items
-       SET current_stock = GREATEST(0, current_stock - $1), updated_at = CURRENT_TIMESTAMP
-       WHERE restaurant_id = $2 AND menu_item_id = $3
-         AND NOT EXISTS (
-           SELECT 1 FROM menu_item_ingredients r
-           WHERE r.restaurant_id = $2 AND r.menu_item_id = $3
-         )
-       RETURNING id, restaurant_id, menu_item_id, current_stock, reorder_level, last_restocked_at, created_at, updated_at`,
-      [quantity, restaurantId, menuItemId],
-    );
+    const schema = await query(`SELECT to_regclass('public.menu_item_ingredients') IS NOT NULL AS recipe_schema_ready`);
+    const recipeSchemaReady = Boolean(schema.rows[0]?.recipe_schema_ready);
+
+    const result = recipeSchemaReady
+      ? await query(
+          `UPDATE inventory_items
+           SET current_stock = GREATEST(0, current_stock - $1), updated_at = CURRENT_TIMESTAMP
+           WHERE restaurant_id = $2 AND menu_item_id = $3
+             AND NOT EXISTS (
+               SELECT 1 FROM menu_item_ingredients r
+               WHERE r.restaurant_id = $2 AND r.menu_item_id = $3
+             )
+           RETURNING id, restaurant_id, menu_item_id, current_stock, reorder_level, last_restocked_at, created_at, updated_at`,
+          [quantity, restaurantId, menuItemId],
+        )
+      : await query(
+          `UPDATE inventory_items
+           SET current_stock = GREATEST(0, current_stock - $1), updated_at = CURRENT_TIMESTAMP
+           WHERE restaurant_id = $2 AND menu_item_id = $3
+           RETURNING id, restaurant_id, menu_item_id, current_stock, reorder_level, last_restocked_at, created_at, updated_at`,
+          [quantity, restaurantId, menuItemId],
+        );
+
     return result.rows[0] || null;
   }
 
