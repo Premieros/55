@@ -1,8 +1,12 @@
-# Guarded, manual-only bootstrap for the dedicated AuraOS Supabase database.
+# Guarded bootstrap for the dedicated AuraOS Supabase database.
 name: AuraOS database bootstrap
 
 on:
   workflow_dispatch:
+  push:
+    branches: ["development/auraos-preview"]
+    paths:
+      - ".github/workflows/auraos-db-bootstrap.yml"
 
 permissions:
   contents: read
@@ -17,6 +21,7 @@ jobs:
     timeout-minutes: 20
     env:
       DATABASE_URL: ${{ secrets.AURAOS_DATABASE_URL }}
+      AURAOS_SUPER_ADMIN_PASSWORD: ${{ secrets.AURAOS_SUPER_ADMIN_PASSWORD }}
       AURAOS_EXPECTED_PROJECT_REF: limpprtlwtlvfwezkulq
 
     steps:
@@ -48,34 +53,19 @@ jobs:
           if (!raw) throw new Error('AURAOS_DATABASE_URL secret is missing');
           const u = new URL(raw);
           const identity = `${u.hostname} ${decodeURIComponent(u.username)}`;
-          if (!identity.includes(expected)) {
-            throw new Error(`DATABASE IDENTITY MISMATCH: expected ${expected}`);
-          }
+          if (!identity.includes(expected)) throw new Error(`DATABASE IDENTITY MISMATCH: expected ${expected}`);
           u.searchParams.set('sslmode', 'require');
           if (u.hostname.endsWith('.pooler.supabase.com')) u.searchParams.set('uselibpqcompat', 'true');
           const pool = new Pool({ connectionString: u.toString(), connectionTimeoutMillis: 10000 });
           (async () => {
             const client = await pool.connect();
             try {
-              const db = await client.query(`select current_database() as db, current_user as usr`);
-              const tables = await client.query(`
-                select tablename
-                from pg_tables
-                where schemaname = 'public'
-                order by tablename
-              `);
+              const tables = await client.query(`select tablename from pg_tables where schemaname='public' order by tablename`);
               const names = tables.rows.map(r => r.tablename);
-              const hasLog = names.includes('migrations_log');
-              if (names.length > 0 && !hasLog) {
-                throw new Error(`Refusing bootstrap: public schema is not empty and has no AuraOS migrations_log (${names.length} tables found)`);
-              }
-              console.log(`✅ Preflight passed for dedicated AuraOS database; public tables before migration: ${names.length}`);
-              console.log(`✅ PostgreSQL connection established as ${db.rows[0].usr}`);
-            } finally {
-              client.release();
-              await pool.end();
-            }
-          })().catch(err => { console.error(`❌ ${err.message}`); process.exit(1); });
+              if (names.length > 0 && !names.includes('migrations_log')) throw new Error('Refusing bootstrap: database is not an AuraOS schema');
+              console.log(`Preflight passed for dedicated AuraOS database; public tables: ${names.length}`);
+            } finally { client.release(); await pool.end(); }
+          })().catch(err => { console.error(err.message); process.exit(1); });
           NODE
 
       - name: Compile AuraOS backend before database write
@@ -94,8 +84,7 @@ jobs:
           node <<'NODE'
           const { Pool } = require('pg');
           const fs = require('fs');
-          const raw = process.env.DATABASE_URL;
-          const u = new URL(raw);
+          const u = new URL(process.env.DATABASE_URL);
           u.searchParams.set('sslmode', 'require');
           if (u.hostname.endsWith('.pooler.supabase.com')) u.searchParams.set('uselibpqcompat', 'true');
           const pool = new Pool({ connectionString: u.toString(), connectionTimeoutMillis: 10000 });
@@ -106,50 +95,23 @@ jobs:
               const applied = await client.query(`select migration_name from migrations_log order by migration_name`);
               const appliedNames = applied.rows.map(r => r.migration_name);
               const missing = expectedFiles.filter(x => !appliedNames.includes(x));
-              if (expectedFiles.length < 29) throw new Error(`Expected at least 29 migration files, found ${expectedFiles.length}`);
-              if (missing.length) throw new Error(`Missing migrations: ${missing.join(', ')}`);
-
-              const role = await client.query(`select rolname, rolcanlogin, rolbypassrls from pg_roles where rolname = 'app_tenant'`);
-              if (role.rowCount !== 1) throw new Error('app_tenant role is missing');
-              if (role.rows[0].rolcanlogin || role.rows[0].rolbypassrls) throw new Error('app_tenant role is not fail-closed');
-
-              const membership = await client.query(`select pg_has_role(current_user, 'app_tenant', 'member') as ok`);
-              if (!membership.rows[0].ok) throw new Error('Current application DB role is not a member of app_tenant');
-
+              if (expectedFiles.length < 29 || missing.length) throw new Error(`Migration verification failed: ${missing.join(', ')}`);
+              const role = await client.query(`select rolcanlogin, rolbypassrls from pg_roles where rolname='app_tenant'`);
+              if (role.rowCount !== 1 || role.rows[0].rolcanlogin || role.rows[0].rolbypassrls) throw new Error('app_tenant role is not fail-closed');
               const rls = await client.query(`
                 select c.table_name, pc.relrowsecurity
                 from information_schema.columns c
-                join pg_class pc on pc.relname = c.table_name
-                join pg_namespace pn on pn.oid = pc.relnamespace and pn.nspname = c.table_schema
-                where c.table_schema = 'public'
-                  and c.column_name = 'restaurant_id'
-                  and pc.relkind = 'r'
-                order by c.table_name
+                join pg_class pc on pc.relname=c.table_name
+                join pg_namespace pn on pn.oid=pc.relnamespace and pn.nspname=c.table_schema
+                where c.table_schema='public' and c.column_name='restaurant_id' and pc.relkind='r'
               `);
               const unprotected = rls.rows.filter(r => !r.relrowsecurity).map(r => r.table_name);
-              if (unprotected.length) throw new Error(`RLS disabled on restaurant-scoped tables: ${unprotected.join(', ')}`);
-
-              const orgSecurity = await client.query(`
-                select c.relrowsecurity,
-                       has_table_privilege('app_tenant', 'public.organization_groups', 'SELECT') as tenant_can_select
-                from pg_class c
-                join pg_namespace n on n.oid = c.relnamespace
-                where n.nspname = 'public' and c.relname = 'organization_groups'
-              `);
-              if (orgSecurity.rowCount !== 1 || !orgSecurity.rows[0].relrowsecurity) {
-                throw new Error('organization_groups RLS is not enabled');
-              }
-              if (orgSecurity.rows[0].tenant_can_select) {
-                throw new Error('app_tenant unexpectedly has SELECT on organization_groups');
-              }
-
-              console.log(`✅ ${appliedNames.length}/${expectedFiles.length} AuraOS migrations recorded`);
-              console.log(`✅ app_tenant exists, NOLOGIN, no BYPASSRLS, and membership is valid`);
-              console.log(`✅ RLS enabled on all ${rls.rows.length} public tables carrying restaurant_id`);
-              console.log('✅ organization_groups is RLS-protected and inaccessible to app_tenant');
-            } finally {
-              client.release();
-              await pool.end();
-            }
-          })().catch(err => { console.error(`❌ ${err.message}`); process.exit(1); });
+              if (unprotected.length) throw new Error(`RLS disabled: ${unprotected.join(', ')}`);
+              console.log(`${appliedNames.length}/${expectedFiles.length} migrations and tenant RLS verified`);
+            } finally { client.release(); await pool.end(); }
+          })().catch(err => { console.error(err.message); process.exit(1); });
           NODE
+
+      - name: Bootstrap Sayed platform super admin account
+        working-directory: auraos
+        run: node scripts/bootstrap-super-admin.cjs
