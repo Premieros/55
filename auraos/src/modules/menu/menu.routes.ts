@@ -3,8 +3,12 @@ import { menuController } from './menu.controller';
 import { authenticate } from '@/shared/middleware/authenticate';
 import { authorize } from '@/shared/middleware/authorize';
 import { checkSubscription } from '@/shared/middleware/checkSubscription';
+import recipesRoutes from '@/modules/recipes/recipes.routes';
 
 const router = Router();
+
+// Recipes and raw ingredients (admin only inside the sub-router)
+router.use('/recipes', recipesRoutes);
 
 // Read-only menu overview for authenticated users
 router.get('/', authenticate, (req, res, next) => menuController.getMenu(req, res, next));
