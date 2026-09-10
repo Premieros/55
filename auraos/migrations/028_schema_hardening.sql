@@ -57,7 +57,9 @@ ALTER TABLE payments DROP CONSTRAINT IF EXISTS payments_restaurant_id_fkey;
 ALTER TABLE payments ADD CONSTRAINT payments_restaurant_id_fkey
   FOREIGN KEY (restaurant_id) REFERENCES restaurants(id) ON DELETE RESTRICT;
 
--- subscription_invoices.restaurant_id: CASCADE → RESTRICT
-ALTER TABLE subscription_invoices DROP CONSTRAINT IF EXISTS subscription_invoices_restaurant_id_fkey;
-ALTER TABLE subscription_invoices ADD CONSTRAINT subscription_invoices_restaurant_id_fkey
+-- invoices.restaurant_id: CASCADE → RESTRICT
+-- Migration 011 creates this table as `invoices`; keep the hardening migration
+-- aligned with that canonical schema name.
+ALTER TABLE invoices DROP CONSTRAINT IF EXISTS invoices_restaurant_id_fkey;
+ALTER TABLE invoices ADD CONSTRAINT invoices_restaurant_id_fkey
   FOREIGN KEY (restaurant_id) REFERENCES restaurants(id) ON DELETE RESTRICT;
