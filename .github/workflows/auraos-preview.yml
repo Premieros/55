@@ -83,6 +83,14 @@ jobs:
           npm run build
           mv dist dist-main
 
+      - name: Compile AuraOS backend
+        working-directory: auraos
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          npm run build
+
       - name: Prepare AuraOS frontend for GitHub Pages preview
         shell: bash
         run: |
