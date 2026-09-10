@@ -203,6 +203,11 @@ jobs:
 
             const listedServices = await api('GET', `/projects/${project.id}/services?per_page=100`);
             const services = listedServices?.data?.services || [];
+            console.log('Visible Northflank services:', services.map(item => ({
+              id: item.id,
+              name: item.name,
+              serviceType: item.serviceType,
+            })));
             const existing = services.find(item =>
               item.id === 'auraos-backend' || item.name === process.env.NORTHFLANK_SERVICE_NAME);
             if (existing && existing.serviceType !== 'combined') {
