@@ -116,16 +116,13 @@ jobs:
           text = text.replace("src: '/icon-512.png'", "src: '/55/auraos-preview/icon-512.png'")
           text = text.replace("src: '/pwa-192x192.svg'", "src: '/55/auraos-preview/pwa-192x192.svg'")
           vite.write_text(text, encoding='utf-8')
-
-          api = Path('auraos/client/src/api.ts')
-          text = api.read_text(encoding='utf-8')
-          text = text.replace("baseURL: '/api/v1'", "baseURL: '/55/auraos-preview/api-unavailable'")
-          api.write_text(text, encoding='utf-8')
           PY
 
       - name: Build AuraOS static frontend
         working-directory: auraos/client
         shell: bash
+        env:
+          VITE_API_BASE_URL: ${{ vars.AURAOS_API_BASE_URL || 'https://premieros-55-auraos-api.onrender.com/api/v1' }}
         run: |
           set -euo pipefail
           npm ci --no-audit --no-fund
