@@ -42,6 +42,33 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => {
     console.debug(`[API] Response: ${response.status}`)
+
+    // The Orders and Payments list endpoints use the backend's standard
+    // paginated envelope: data = { items, total, limit, offset, hasMore }.
+    // The existing staff UI predates that envelope and consumes data as an
+    // array. Normalize only these proven list endpoints so Orders, Kitchen and
+    // Payments receive the array they expect while preserving pagination
+    // metadata separately and leaving every other API contract untouched.
+    const requestPath = response.config.url?.split('?')[0]
+    const payload = response.data?.data
+    if (
+      (requestPath === '/orders' || requestPath === '/payments') &&
+      payload &&
+      !Array.isArray(payload) &&
+      Array.isArray(payload.items)
+    ) {
+      response.data = {
+        ...response.data,
+        data: payload.items,
+        pagination: {
+          total: payload.total,
+          limit: payload.limit,
+          offset: payload.offset,
+          hasMore: payload.hasMore,
+        },
+      }
+    }
+
     return response
   },
   async (error: AxiosError) => {
