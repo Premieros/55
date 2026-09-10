@@ -7,7 +7,7 @@
     "dev": "nodemon --exec ts-node -r tsconfig-paths/register src/server.ts",
     "build": "tsc && tsc-alias",
     "start": "node dist/server.js",
-    "migrate": "ts-node -r tsconfig-paths/register scripts/migrate.ts",
+    "migrate": "ts-node -r tsconfig-paths/register scripts/migrate-locked.ts",
     "backup": "ts-node -r tsconfig-paths/register scripts/backup-db.ts",
     "restore": "ts-node -r tsconfig-paths/register scripts/restore-db.ts",
     "test": "jest",

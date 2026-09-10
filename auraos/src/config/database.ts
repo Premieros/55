@@ -1,12 +1,15 @@
 import { Pool, PoolClient } from 'pg';
 // env validates DATABASE_URL at startup — no need for manual check here
 import { env } from '@/config/env';
+import { normalizeAndAssertAuraDatabaseUrl } from '@/config/databaseIdentity';
+
+const databaseUrl = normalizeAndAssertAuraDatabaseUrl(env.DATABASE_URL);
 
 export const pool = new Pool({
-  connectionString: env.DATABASE_URL,
+  connectionString: databaseUrl,
   max: 20,
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
+  connectionTimeoutMillis: 5000,
 });
 
 pool.on('error', (err) => {
