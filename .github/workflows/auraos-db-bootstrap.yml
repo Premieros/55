@@ -1,3 +1,4 @@
+# Guarded bootstrap for the dedicated AuraOS Supabase database.
 name: AuraOS database bootstrap
 
 on:
