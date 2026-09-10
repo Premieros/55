@@ -1,0 +1,136 @@
+name: AuraOS published screen smoke
+
+on:
+  push:
+    branches: ["development/auraos-preview"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: auraos-published-screen-smoke
+  cancel-in-progress: true
+
+jobs:
+  browser-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Wait for Pages and Vercel deployments
+        run: sleep 90
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Playwright
+        run: |
+          mkdir -p /tmp/auraos-smoke
+          cd /tmp/auraos-smoke
+          npm init -y >/dev/null 2>&1
+          npm install playwright@1.55.0 --no-audit --no-fund
+          npx playwright install --with-deps chromium
+
+      - name: Smoke every published screen
+        shell: bash
+        run: |
+          cat >/tmp/auraos-smoke/smoke.cjs <<'NODE'
+          const { chromium } = require('playwright');
+
+          const ROOT = 'https://premieros.github.io/55/auraos-preview/';
+          const publicRoutes = [
+            '/', '/login', '/register', '/password-reset', '/onboarding', '/customer', '/display'
+          ];
+          const protectedRoutes = [
+            '/dashboard', '/orders', '/tables', '/menu', '/payments', '/inventory', '/users',
+            '/reports', '/qr-settings', '/zomato-settings', '/subscription', '/features', '/modifiers',
+            '/reservations', '/delivery-zones', '/coupons', '/reviews', '/loyalty',
+            '/owner', '/multi-outlet', '/owner/monitoring',
+            '/ai', '/ai/copilot', '/ai/forecasts', '/ai/customers', '/ai/recommendations',
+            '/ai/inventory', '/ai/wait-time', '/ai/reports', '/ai/models', '/ai/events',
+            '/ai/workflows', '/ai/autonomy', '/ai/agents', '/ai/knowledge', '/ai/health',
+            '/orders/00000000-0000-0000-0000-000000000000'
+          ];
+
+          const browser = await chromium.launch({ headless: true });
+          const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+          const page = await context.newPage();
+          const failures = [];
+          let currentRoute = '';
+          let route5xx = [];
+          let pageErrors = [];
+
+          page.on('pageerror', err => pageErrors.push(String(err && err.message || err)));
+          page.on('response', res => {
+            if (res.status() >= 500) route5xx.push(`${res.status()} ${res.url()}`);
+          });
+
+          async function visit(route, authenticated = false) {
+            currentRoute = route;
+            route5xx = [];
+            pageErrors = [];
+            const url = `${ROOT}#${route}`;
+            try {
+              await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+              await page.waitForTimeout(2200);
+              const body = (await page.locator('body').innerText().catch(() => '')) || '';
+              const boundary = /Something went wrong|unexpected error occurred|Unexpected Application Error/i.test(body);
+              const hardFailure = boundary || pageErrors.length > 0 || route5xx.length > 0;
+              if (hardFailure) {
+                const screenshot = `/tmp/auraos-smoke/fail-${route.replace(/[^a-z0-9]+/gi,'_') || 'root'}.png`;
+                await page.screenshot({ path: screenshot, fullPage: true }).catch(() => {});
+                failures.push({ route, boundary, pageErrors: [...pageErrors], http5xx: [...route5xx], url: page.url(), screenshot });
+                console.log(`FAIL ${route} -> ${page.url()}`);
+                if (boundary) console.log('  ErrorBoundary visible');
+                for (const e of pageErrors) console.log(`  pageerror: ${e}`);
+                for (const e of route5xx) console.log(`  5xx: ${e}`);
+              } else {
+                console.log(`PASS ${route} -> ${page.url()}`);
+              }
+            } catch (err) {
+              failures.push({ route, navigation: String(err && err.message || err), url: page.url() });
+              console.log(`FAIL ${route}: navigation ${err.message}`);
+            }
+          }
+
+          for (const route of publicRoutes) await visit(route, false);
+
+          await page.goto(`${ROOT}#/login`, { waitUntil: 'domcontentloaded', timeout: 30000 });
+          await page.locator('input[type="email"]').fill('admin@demo-kitchen.local');
+          await page.locator('input[type="password"]').fill('demo123');
+          await Promise.all([
+            page.waitForTimeout(1000),
+            page.getByRole('button', { name: /sign in/i }).click(),
+          ]);
+          await page.waitForTimeout(2500);
+          if (page.url().includes('#/login')) {
+            failures.push({ route: 'LOGIN', error: 'Demo admin login did not leave login screen', url: page.url() });
+            console.log('FAIL LOGIN');
+          } else {
+            console.log(`PASS LOGIN -> ${page.url()}`);
+          }
+
+          for (const route of protectedRoutes) await visit(route, true);
+
+          console.log('\n=== AURAOS SCREEN SMOKE SUMMARY ===');
+          console.log(`Public routes: ${publicRoutes.length}`);
+          console.log(`Protected routes: ${protectedRoutes.length}`);
+          console.log(`Failures: ${failures.length}`);
+          if (failures.length) {
+            console.log(JSON.stringify(failures, null, 2));
+          }
+          await browser.close();
+          if (failures.length) process.exit(1);
+          NODE
+          cd /tmp/auraos-smoke
+          node smoke.cjs
+
+      - name: Upload failure screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: auraos-screen-smoke-failures
+          path: /tmp/auraos-smoke/fail-*.png
+          if-no-files-found: ignore
