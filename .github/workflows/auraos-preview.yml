@@ -1,0 +1,149 @@
+name: AuraOS isolated preview
+
+on:
+  push:
+    branches: ["development/auraos-preview"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  extract-build-deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout preview branch
+        uses: actions/checkout@v4
+        with:
+          ref: development/auraos-preview
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Extract AuraOS archive safely
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f AuraOS-main.zip
+          ZIP_SHA="$(sha256sum AuraOS-main.zip | awk '{print $1}')"
+
+          if [ -f auraos/.source-zip-sha256 ] && [ "$(cat auraos/.source-zip-sha256)" = "$ZIP_SHA" ]; then
+            echo "AuraOS archive already extracted at this exact SHA."
+            exit 0
+          fi
+
+          rm -rf .aura-extract auraos
+          mkdir -p .aura-extract auraos
+          unzip -q AuraOS-main.zip -d .aura-extract
+          SRC_DIR="$(find .aura-extract -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+          test -n "$SRC_DIR"
+
+          rsync -a \
+            --exclude='.git/' \
+            --exclude='node_modules/' \
+            --exclude='.env' \
+            --exclude='.env.*' \
+            "$SRC_DIR"/ auraos/
+
+          printf '%s' "$ZIP_SHA" > auraos/.source-zip-sha256
+          rm -rf .aura-extract
+
+      - name: Commit extracted AuraOS source to preview branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- auraos && git diff --cached --quiet -- auraos; then
+            echo "No extraction changes to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add auraos
+          git commit -m "chore: extract AuraOS archive on isolated preview branch [skip ci]"
+          git push origin HEAD:development/auraos-preview
+
+      - name: Build existing Premieros 55 site
+        shell: bash
+        env:
+          VITE_BASE_PATH: /55/
+        run: |
+          set -euo pipefail
+          npm install --legacy-peer-deps --no-audit --no-fund
+          npm install --legacy-peer-deps --no-save --no-audit --no-fund react-is@18.3.1
+          npm run build
+          mv dist dist-main
+
+      - name: Prepare AuraOS frontend for GitHub Pages preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f auraos/client/package.json
+          python3 <<'PY'
+          from pathlib import Path
+
+          main = Path('auraos/client/src/main.tsx')
+          text = main.read_text(encoding='utf-8')
+          text = text.replace("import { BrowserRouter } from 'react-router-dom'", "import { HashRouter } from 'react-router-dom'")
+          text = text.replace('<BrowserRouter', '<HashRouter')
+          text = text.replace('</BrowserRouter>', '</HashRouter>')
+          main.write_text(text, encoding='utf-8')
+
+          vite = Path('auraos/client/vite.config.ts')
+          text = vite.read_text(encoding='utf-8')
+          if "base: '/55/auraos-preview/'" not in text:
+              text = text.replace('export default defineConfig({', "export default defineConfig({\n  base: '/55/auraos-preview/',")
+          text = text.replace("navigateFallback: '/index.html'", "navigateFallback: '/55/auraos-preview/index.html'")
+          text = text.replace("start_url: '/',", "start_url: '/55/auraos-preview/#/',")
+          text = text.replace("scope: '/',", "scope: '/55/auraos-preview/',")
+          text = text.replace("src: '/icon-512.png'", "src: '/55/auraos-preview/icon-512.png'")
+          text = text.replace("src: '/pwa-192x192.svg'", "src: '/55/auraos-preview/pwa-192x192.svg'")
+          vite.write_text(text, encoding='utf-8')
+
+          api = Path('auraos/client/src/api.ts')
+          text = api.read_text(encoding='utf-8')
+          text = text.replace("baseURL: '/api/v1'", "baseURL: '/55/auraos-preview/api-unavailable'")
+          api.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Build AuraOS static frontend
+        working-directory: auraos/client
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          npm run build || npx vite build
+
+      - name: Compose existing site plus AuraOS preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf site
+          mkdir -p site/auraos-preview
+          cp -a dist-main/. site/
+          cp -a auraos/client/dist/. site/auraos-preview/
+          touch site/.nojekyll
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload combined Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy combined site
+        id: deployment
+        uses: actions/deploy-pages@v4
