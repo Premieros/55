@@ -62,7 +62,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if git diff --quiet -- auraos && git diff --cached --quiet -- auraos; then
+          if [ -z "$(git status --porcelain -- auraos)" ]; then
             echo "No extraction changes to commit."
             exit 0
           fi
