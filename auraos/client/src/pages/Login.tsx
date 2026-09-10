@@ -6,7 +6,7 @@ import { ArrowRightIcon, SparklesIcon, BoltIcon, ChartBarIcon, ShieldCheckIcon }
 
 const Login: React.FC = () => {
   const [email, setEmail] = useState('admin@demo-kitchen.local')
-  const [password, setPassword] = useState('demo1234')
+  const [password, setPassword] = useState('demo123')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const { login } = useAuth()
@@ -32,7 +32,7 @@ const Login: React.FC = () => {
       <div className="absolute inset-0 pointer-events-none overflow-hidden">
         <div className="absolute -top-48 left-1/4 w-[600px] h-[600px] bg-[#3b82f6]/20 rounded-full blur-[140px] animate-pulse" />
         <div className="absolute top-1/3 -right-24 w-[500px] h-[500px] bg-[#8b5cf6]/18 rounded-full blur-[130px] animate-pulse" style={{ animationDelay: '1s' }} />
-        <div className="absolute -bottom-48 left-1/3 w-[450px] h-[450px] bg-[#ec4899]/12 rounded-full blur-[120px] animate-pulse" />
+        <div className="absolute -bottom-48 left-1/3 w-[450px] h-[450px] bg-[#ec4899]/12 rounded-full blur-[120px]" />
       </div>
 
       {/* LEFT SIDE — Features */}
@@ -159,7 +159,7 @@ const Login: React.FC = () => {
               <p className="text-xs text-slate-500 font-medium mb-3">Demo Credentials (Pre-filled)</p>
               <div className="space-y-2 text-xs text-slate-400">
                 <p className="font-mono">admin@demo-kitchen.local</p>
-                <p className="font-mono">demo1234</p>
+                <p className="font-mono">demo123</p>
               </div>
             </div>
 
