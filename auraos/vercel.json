@@ -1,8 +1,15 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm run build",
   "functions": {
-    "src/server.ts": {
-      "includeFiles": "src/**"
+    "api/index.js": {
+      "includeFiles": "dist/**"
     }
-  }
+  },
+  "rewrites": [
+    {
+      "source": "/api/v1/:path*",
+      "destination": "/api/index"
+    }
+  ]
 }
