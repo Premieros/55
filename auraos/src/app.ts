@@ -1,4 +1,15 @@
-import 'tsconfig-paths/register';
+import { register } from 'tsconfig-paths';
+
+// Vercel executes the transpiled server from /var/task/auraos/src and does not
+// necessarily keep tsconfig.json in the function bundle. Register the alias
+// explicitly from this file location instead of relying on tsconfig discovery.
+register({
+  baseUrl: __dirname,
+  paths: {
+    '@/*': ['*'],
+  },
+});
+
 import express, { Express } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
