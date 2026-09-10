@@ -86,7 +86,7 @@ jobs:
         working-directory: auraos
         run: npm run build
 
-      - name: Apply AuraOS migrations 001 through 028
+      - name: Apply all AuraOS migrations
         working-directory: auraos
         run: npm run migrate
 
@@ -110,7 +110,7 @@ jobs:
               const applied = await client.query(`select migration_name from migrations_log order by migration_name`);
               const appliedNames = applied.rows.map(r => r.migration_name);
               const missing = expectedFiles.filter(x => !appliedNames.includes(x));
-              if (expectedFiles.length !== 28) throw new Error(`Expected 28 migration files, found ${expectedFiles.length}`);
+              if (expectedFiles.length < 29) throw new Error(`Expected at least 29 migration files, found ${expectedFiles.length}`);
               if (missing.length) throw new Error(`Missing migrations: ${missing.join(', ')}`);
 
               const role = await client.query(`select rolname, rolcanlogin, rolbypassrls from pg_roles where rolname = 'app_tenant'`);
@@ -133,9 +133,24 @@ jobs:
               const unprotected = rls.rows.filter(r => !r.relrowsecurity).map(r => r.table_name);
               if (unprotected.length) throw new Error(`RLS disabled on restaurant-scoped tables: ${unprotected.join(', ')}`);
 
-              console.log(`✅ ${appliedNames.length}/28 AuraOS migrations recorded`);
+              const orgSecurity = await client.query(`
+                select c.relrowsecurity,
+                       has_table_privilege('app_tenant', 'public.organization_groups', 'SELECT') as tenant_can_select
+                from pg_class c
+                join pg_namespace n on n.oid = c.relnamespace
+                where n.nspname = 'public' and c.relname = 'organization_groups'
+              `);
+              if (orgSecurity.rowCount !== 1 || !orgSecurity.rows[0].relrowsecurity) {
+                throw new Error('organization_groups RLS is not enabled');
+              }
+              if (orgSecurity.rows[0].tenant_can_select) {
+                throw new Error('app_tenant unexpectedly has SELECT on organization_groups');
+              }
+
+              console.log(`✅ ${appliedNames.length}/${expectedFiles.length} AuraOS migrations recorded`);
               console.log(`✅ app_tenant exists, NOLOGIN, no BYPASSRLS, and membership is valid`);
               console.log(`✅ RLS enabled on all ${rls.rows.length} public tables carrying restaurant_id`);
+              console.log('✅ organization_groups is RLS-protected and inaccessible to app_tenant');
             } finally {
               client.release();
               await pool.end();
