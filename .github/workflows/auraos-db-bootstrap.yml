@@ -1,12 +1,8 @@
-# Guarded bootstrap for the dedicated AuraOS Supabase database.
+# Guarded, manual-only bootstrap for the dedicated AuraOS Supabase database.
 name: AuraOS database bootstrap
 
 on:
   workflow_dispatch:
-  push:
-    branches: ["development/auraos-preview"]
-    paths:
-      - ".github/workflows/auraos-db-bootstrap.yml"
 
 permissions:
   contents: read
