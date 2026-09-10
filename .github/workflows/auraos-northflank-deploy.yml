@@ -85,7 +85,6 @@ jobs:
           const token = process.env.NORTHFLANK_API_TOKEN;
           const branch = 'development/auraos-preview';
           const expectedRef = process.env.AURAOS_EXPECTED_PROJECT_REF;
-          const expectedProjectId = 'auraos-preview';
 
           async function api(method, path, body, accepted = [200, 201, 202]) {
             const response = await fetch(`${apiBase}${path}`, {
@@ -113,37 +112,13 @@ jobs:
           }
 
           async function main() {
-            const projectList = await api('GET', '/projects?per_page=100');
-            const projects = projectList?.data?.projects || [];
-            let project = projects.find(item =>
-              item.id === expectedProjectId ||
-              item.name?.trim().toLowerCase() === process.env.NORTHFLANK_PROJECT_NAME.toLowerCase());
-            if (!project) {
-              const createResponse = await fetch(`${apiBase}/projects`, {
-                method: 'POST',
-                headers: {
-                  Authorization: `Bearer ${token}`,
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                  name: process.env.NORTHFLANK_PROJECT_NAME,
-                  description: 'Isolated AuraOS backend preview',
-                  color: '#7C3AED',
-                  region: 'europe-west',
-                }),
-              });
-              if ([200, 201, 202].includes(createResponse.status)) {
-                project = (await createResponse.json()).data;
-                console.log('Created isolated Northflank project.');
-              } else if (createResponse.status === 409) {
-                project = (await api('GET', `/projects/${expectedProjectId}`)).data;
-                console.log('Reused the existing isolated Northflank project.');
-              } else {
-                throw new Error(`POST /projects failed with HTTP ${createResponse.status}`);
-              }
-            } else {
-              console.log('Using existing isolated Northflank project.');
-            }
+            const project = (await api('PUT', '/projects', {
+              name: process.env.NORTHFLANK_PROJECT_NAME,
+              description: 'Isolated AuraOS backend preview',
+              color: '#7C3AED',
+              region: 'europe-west',
+            })).data;
+            console.log('Northflank project specification applied.');
             if (!project?.id) throw new Error('Northflank project ID was not returned');
 
             const databaseUrl = new URL(process.env.DATABASE_URL);
