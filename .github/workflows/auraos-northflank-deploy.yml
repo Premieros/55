@@ -112,12 +112,30 @@ jobs:
           }
 
           async function main() {
-            const project = (await api('PUT', '/projects', {
-              name: process.env.NORTHFLANK_PROJECT_NAME,
-              description: 'Isolated AuraOS backend preview',
-              color: '#7C3AED',
-              region: 'europe-west',
-            })).data;
+            const listed = await api('GET', '/projects?per_page=100');
+            const visibleProjects = listed?.data?.projects || [];
+            console.log('Visible Northflank projects:', visibleProjects.map(item => ({
+              id: item.id,
+              name: item.name,
+            })));
+            const projectResponse = await fetch(`${apiBase}/projects`, {
+              method: 'PUT',
+              headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                name: process.env.NORTHFLANK_PROJECT_NAME,
+                description: 'Isolated AuraOS backend preview',
+                color: '#7C3AED',
+                region: 'europe-west',
+              }),
+            });
+            if (![200, 201, 202].includes(projectResponse.status)) {
+              const safeProjectError = (await projectResponse.text()).slice(0, 1000);
+              throw new Error(`PUT /projects failed with HTTP ${projectResponse.status}: ${safeProjectError}`);
+            }
+            const project = (await projectResponse.json()).data;
             console.log('Northflank project specification applied.');
             if (!project?.id) throw new Error('Northflank project ID was not returned');
 
