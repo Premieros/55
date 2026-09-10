@@ -141,7 +141,7 @@ const Recipes: React.FC = () => {
 
       <div className="flex flex-wrap gap-3 mt-5">
         <Button variant="outline" onClick={()=>setLines(p=>[...p,{ingredient_id:ingredients[0]?.id || '',quantity:1}])} disabled={!ingredients.length} leftIcon={<PlusIcon className="w-4 h-4" />}>{t('إضافة مكوّن للوصفة', 'Add recipe ingredient')}</Button>
-        <Button onClick={saveRecipe} loading={saving} disabled={!selected}>{t('حفظ الوصفة', 'Save recipe')}</Button>
+        <Button onClick={saveRecipe} isLoading={saving} disabled={!selected}>{t('حفظ الوصفة', 'Save recipe')}</Button>
       </div>
     </Card>
 
