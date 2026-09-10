@@ -1,0 +1,118 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: auraos-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-auraos_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-auraos}
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-auraos_user} -d ${POSTGRES_DB:-auraos}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: auraos-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    build: .
+    container_name: auraos-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-auraos_user}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-auraos}
+      REDIS_URL: redis://redis:6379
+      # CORS_ORIGIN: http://localhost
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/v1/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  ai-analytics:
+    build:
+      context: ./ai-analytics-service
+      dockerfile: Dockerfile
+    container_name: auraos-ai-analytics
+    restart: unless-stopped
+    env_file:
+      - ./ai-analytics-service/.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-auraos_user}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-auraos}
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in .env and match the backend}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8000/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  frontend:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: auraos-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:80/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  nginx:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    container_name: auraos-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    depends_on:
+      frontend:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+      ai-analytics:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:
