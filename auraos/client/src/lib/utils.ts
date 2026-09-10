@@ -1,13 +1,12 @@
 import { format, formatDistanceToNow, isToday, isYesterday } from 'date-fns'
 
-/** Format currency in INR */
+/** Format currency in Egyptian pounds using the requested L.E display label. */
 export function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: 'INR',
+  const value = new Intl.NumberFormat('en-EG', {
     minimumFractionDigits: 0,
     maximumFractionDigits: 2,
-  }).format(amount)
+  }).format(Number(amount || 0))
+  return `${value} L.E`
 }
 
 /** Format a date string for display */
