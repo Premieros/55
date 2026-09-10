@@ -1,8 +1,11 @@
 // API Base Configuration and Authentication
 import axios, { AxiosError } from 'axios'
 
+const configuredApiBase = (import.meta.env.VITE_API_BASE_URL || '/api/v1').trim()
+const apiBaseUrl = configuredApiBase.replace(/\/+$/, '')
+
 const api = axios.create({
-  baseURL: '/api/v1',
+  baseURL: apiBaseUrl,
   timeout: 30000,
   headers: {
     'Content-Type': 'application/json'
@@ -247,19 +250,15 @@ export const userApi = {
 
 // ============ SUBSCRIPTION & BILLING SERVICES ============
 export const subscriptionApi = {
-  // Current restaurant's subscription (enriched view)
   getMine: () =>
     api.get('/subscriptions/me'),
 
-  // Active plans catalogue
   getPlans: () =>
     api.get('/subscription-plans'),
 
-  // Switch plan (ADMIN)
   changePlan: (planId: string) =>
     api.post('/subscriptions/change-plan', { plan_id: planId }),
 
-  // Invoices for own restaurant
   getInvoices: (params?: any) =>
     api.get('/invoices', { params }),
 
@@ -269,7 +268,6 @@ export const subscriptionApi = {
   markInvoicePaid: (id: string) =>
     api.post(`/invoices/${id}/mark-paid`, {}),
 
-  // Super-admin only
   getPlatformMetrics: () =>
     api.get('/subscriptions/platform-metrics'),
 
