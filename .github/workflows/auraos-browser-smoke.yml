@@ -44,7 +44,7 @@ jobs:
             '/', '/login', '/register', '/password-reset', '/onboarding', '/customer', '/display'
           ];
           const protectedRoutes = [
-            '/dashboard', '/orders', '/tables', '/menu', '/payments', '/inventory', '/users',
+            '/dashboard', '/orders', '/tables', '/menu', '/recipes', '/payments', '/inventory', '/users',
             '/reports', '/qr-settings', '/zomato-settings', '/subscription', '/features', '/modifiers',
             '/reservations', '/delivery-zones', '/coupons', '/reviews', '/loyalty',
             '/owner', '/multi-outlet', '/owner/monitoring',
