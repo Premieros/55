@@ -24,9 +24,13 @@ export const ownerReviewsRouter = Router();
 ownerReviewsRouter.get('/', authenticate, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
     const rows = await withTenant(req.user!.restaurantId, async (q) => {
+      // Keep moderation inside the app_tenant grant boundary. Customer PII lives
+      // behind a separate privilege boundary, so do not widen DB grants just to
+      // decorate this list. Preserve the API shape with a nullable display name.
       const r = await q(
-        `SELECT rv.id, rv.rating, rv.title, rv.body, rv.is_published, rv.created_at, c.name AS customer_name
-         FROM reviews rv LEFT JOIN customers c ON c.id = rv.customer_id
+        `SELECT rv.id, rv.rating, rv.title, rv.body, rv.is_published, rv.created_at,
+                NULL::text AS customer_name
+         FROM reviews rv
          ORDER BY rv.created_at DESC LIMIT 200`,
       );
       return r.rows;
