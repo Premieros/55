@@ -54,7 +54,8 @@ jobs:
           if (!identity.includes(expected)) {
             throw new Error(`DATABASE IDENTITY MISMATCH: expected ${expected}`);
           }
-          if (!u.searchParams.has('sslmode')) u.searchParams.set('sslmode', 'require');
+          u.searchParams.set('sslmode', 'require');
+          if (u.hostname.endsWith('.pooler.supabase.com')) u.searchParams.set('uselibpqcompat', 'true');
           const pool = new Pool({ connectionString: u.toString(), connectionTimeoutMillis: 10000 });
           (async () => {
             const client = await pool.connect();
@@ -98,7 +99,8 @@ jobs:
           const fs = require('fs');
           const raw = process.env.DATABASE_URL;
           const u = new URL(raw);
-          if (!u.searchParams.has('sslmode')) u.searchParams.set('sslmode', 'require');
+          u.searchParams.set('sslmode', 'require');
+          if (u.hostname.endsWith('.pooler.supabase.com')) u.searchParams.set('uselibpqcompat', 'true');
           const pool = new Pool({ connectionString: u.toString(), connectionTimeoutMillis: 10000 });
           (async () => {
             const client = await pool.connect();
