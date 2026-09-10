@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 
 interface UseAIQueryResult<T> {
   data: T | null
@@ -14,26 +14,46 @@ export function useAIQuery<T>(
   const [data, setData] = useState<T | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const mountedRef = useRef(true)
+  const inFlightRef = useRef(false)
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
 
   const fetch = useCallback(async () => {
-    setLoading(true)
+    // Ignore repeated clicks/poll ticks while the same query is already running.
+    if (inFlightRef.current) return
+    inFlightRef.current = true
+
+    // Only block the UI on the first load. Background refreshes keep current
+    // data visible so buttons/navigation remain responsive.
+    setData((current) => {
+      if (current === null) setLoading(true)
+      return current
+    })
     setError(null)
+
     try {
       const res = await fetcher()
-      setData(res.data)
+      if (mountedRef.current) setData(res.data)
     } catch (err: any) {
       const msg = err?.response?.data?.detail || err?.message || 'Failed to fetch data'
-      setError(msg)
+      if (mountedRef.current) setError(msg)
     } finally {
-      setLoading(false)
+      inFlightRef.current = false
+      if (mountedRef.current) setLoading(false)
     }
   }, deps)
 
   useEffect(() => {
-    fetch()
+    void fetch()
   }, [fetch])
 
-  return { data, loading, error, refetch: fetch }
+  return { data, loading, error, refetch: () => void fetch() }
 }
 
 export function useAIPolling<T>(
@@ -44,8 +64,13 @@ export function useAIPolling<T>(
   const result = useAIQuery(fetcher, deps)
 
   useEffect(() => {
-    const id = setInterval(result.refetch, intervalMs)
-    return () => clearInterval(id)
+    const tick = () => {
+      // Background tabs should not spend CPU/network recalculating Local AI.
+      if (document.visibilityState === 'visible') result.refetch()
+    }
+
+    const id = window.setInterval(tick, intervalMs)
+    return () => window.clearInterval(id)
   }, [result.refetch, intervalMs])
 
   return result
