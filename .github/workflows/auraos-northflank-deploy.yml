@@ -1,6 +1,11 @@
 name: Deploy AuraOS backend to Northflank
 
 on:
+  push:
+    branches: ["development/auraos-preview"]
+    paths:
+      - "auraos/**"
+      - ".github/workflows/auraos-northflank-deploy.yml"
   workflow_dispatch:
 
 permissions:
