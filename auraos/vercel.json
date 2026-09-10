@@ -6,7 +6,18 @@
       "includeFiles": "dist/**"
     }
   },
+  "redirects": [
+    {
+      "source": "/",
+      "destination": "/api/v1/health",
+      "permanent": false
+    }
+  ],
   "rewrites": [
+    {
+      "source": "/favicon.ico",
+      "destination": "/api/index"
+    },
     {
       "source": "/api/v1/:path*",
       "destination": "/api/index"
