@@ -5,7 +5,9 @@ import { Toaster } from 'react-hot-toast'
 import './performancePatch.ts'
 import App from './App.tsx'
 import ErrorBoundary from './components/ErrorBoundary.tsx'
+import LocalizationLayer from './components/LocalizationLayer.tsx'
 import './index.css'
+import './localization.css'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
@@ -16,6 +18,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           v7_relativeSplatPath: true,
         }}
       >
+        <LocalizationLayer />
         <App />
         <Toaster
           position="top-right"
