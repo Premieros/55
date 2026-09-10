@@ -30,47 +30,55 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
   const { token, user } = useAuth()
 
   useEffect(() => {
-    if (token && user) {
-      const newSocket = io(import.meta.env.VITE_SOCKET_URL || '', {
-        transports: ['websocket'],
-        auth: {
-          token
-        },
-        reconnection: true,
-        reconnectionDelay: 1000,
-        reconnectionDelayMax: 5000,
-        reconnectionAttempts: 5
-      })
+    const socketUrl = (import.meta.env.VITE_SOCKET_URL || '').trim()
+    const socketPath = (import.meta.env.VITE_SOCKET_PATH || '/socket.io').trim()
 
-      newSocket.on('connect', () => {
-        console.log('[Socket] Connected')
-        setIsConnected(true)
-        // Join restaurant room for real-time updates
-        if (user.restaurantId) {
-          newSocket.emit('join_restaurant', { restaurantId: user.restaurantId })
-        }
-      })
-
-      newSocket.on('disconnect', () => {
-        console.log('[Socket] Disconnected')
-        setIsConnected(false)
-      })
-
-      newSocket.on('connect_error', (error: any) => {
-        console.error('[Socket] Connection error:', error)
-      })
-
-      setSocket(newSocket)
-
-      return () => {
-        newSocket.close()
-      }
-    } else {
+    // Static previews may intentionally omit realtime. In that case, do not
+    // accidentally connect Socket.IO to the GitHub Pages origin.
+    if (!socketUrl || !token || !user) {
       if (socket) {
         socket.close()
         setSocket(null)
-        setIsConnected(false)
       }
+      setIsConnected(false)
+      return
+    }
+
+    const newSocket = io(socketUrl, {
+      path: socketPath,
+      transports: ['websocket'],
+      auth: {
+        token
+      },
+      reconnection: true,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      reconnectionAttempts: 5
+    })
+
+    newSocket.on('connect', () => {
+      console.log('[Socket] Connected')
+      setIsConnected(true)
+      // Join restaurant room for real-time updates
+      if (user.restaurantId) {
+        newSocket.emit('join_restaurant', { restaurantId: user.restaurantId })
+      }
+    })
+
+    newSocket.on('disconnect', () => {
+      console.log('[Socket] Disconnected')
+      setIsConnected(false)
+    })
+
+    newSocket.on('connect_error', (error: any) => {
+      console.error('[Socket] Connection error:', error)
+      setIsConnected(false)
+    })
+
+    setSocket(newSocket)
+
+    return () => {
+      newSocket.close()
     }
   }, [token, user])
 

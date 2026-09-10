@@ -115,6 +115,9 @@ jobs:
           text = text.replace("scope: '/',", "scope: '/55/auraos-preview/',")
           text = text.replace("src: '/icon-512.png'", "src: '/55/auraos-preview/icon-512.png'")
           text = text.replace("src: '/pwa-192x192.svg'", "src: '/55/auraos-preview/pwa-192x192.svg'")
+          text = text.replace("url: '/orders',", "url: '/55/auraos-preview/#/orders',")
+          text = text.replace("url: '/kitchen',", "url: '/55/auraos-preview/#/kitchen',")
+          text = text.replace("url: '/tables',", "url: '/55/auraos-preview/#/tables',")
           vite.write_text(text, encoding='utf-8')
           PY
 
@@ -123,6 +126,8 @@ jobs:
         shell: bash
         env:
           VITE_API_BASE_URL: https://auraos-preview.vercel.app/api/v1
+          VITE_SOCKET_URL: https://auraos-preview.vercel.app
+          VITE_SOCKET_PATH: /api/index/socket.io
         run: |
           set -euo pipefail
           npm ci --no-audit --no-fund

@@ -52,8 +52,7 @@ const appReducer = (state: AppState, action: AppAction): AppState => {
       return { ...state, orders: [action.payload, ...state.orders] }
     case 'UPDATE_ORDER':
       return {
-        ...state,
-        orders: state.orders.map(o => o.id === action.payload.id ? action.payload : o)
+        ...state, orders: state.orders.map(o => o.id === action.payload.id ? action.payload : o)
       }
     case 'DELETE_ORDER':
       return { ...state, orders: state.orders.filter(o => o.id !== action.payload) }
@@ -61,8 +60,7 @@ const appReducer = (state: AppState, action: AppAction): AppState => {
       return { ...state, tables: action.payload }
     case 'UPDATE_TABLE':
       return {
-        ...state,
-        tables: state.tables.map(t => t.id === action.payload.id ? action.payload : t)
+        ...state, tables: state.tables.map(t => t.id === action.payload.id ? action.payload : t)
       }
     case 'SET_MENU_ITEMS':
       return { ...state, menuItems: action.payload }
@@ -76,8 +74,7 @@ const appReducer = (state: AppState, action: AppAction): AppState => {
       return { ...state, inventory: action.payload }
     case 'UPDATE_INVENTORY':
       return {
-        ...state,
-        inventory: state.inventory.map(i => i.id === action.payload.id ? action.payload : i)
+        ...state, inventory: state.inventory.map(i => i.id === action.payload.id ? action.payload : i)
       }
     case 'SET_LOADING':
       return { ...state, loading: action.payload }
@@ -111,13 +108,26 @@ interface AppStoreProviderProps {
 
 export const AppStoreProvider: React.FC<AppStoreProviderProps> = ({ children }) => {
   const [state, dispatch] = useReducer(appReducer, initialState, (initial) => {
-    const stored = localStorage.getItem('appState')
-    return stored ? JSON.parse(stored) : initial
+    try {
+      const stored = localStorage.getItem('appState')
+      if (!stored) return initial
+      const parsed = JSON.parse(stored)
+      if (!parsed || typeof parsed !== 'object') return initial
+      return { ...initial, ...parsed }
+    } catch {
+      // A stale/corrupt PWA cache must never take down the whole application.
+      localStorage.removeItem('appState')
+      return initial
+    }
   })
 
   // Persist state to localStorage
   useEffect(() => {
-    localStorage.setItem('appState', JSON.stringify(state))
+    try {
+      localStorage.setItem('appState', JSON.stringify(state))
+    } catch {
+      // Storage may be unavailable/quota-limited. Runtime state remains usable.
+    }
   }, [state])
 
   return <AppContext.Provider value={{ state, dispatch }}>{children}</AppContext.Provider>
