@@ -1,0 +1,91 @@
+html[dir='rtl'],
+html[dir='rtl'] body {
+  direction: rtl;
+  text-align: right;
+}
+
+html[dir='rtl'] input,
+html[dir='rtl'] textarea,
+html[dir='rtl'] select {
+  text-align: right;
+}
+
+.aura-language-toggle {
+  position: fixed;
+  z-index: 1000;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  left: max(16px, env(safe-area-inset-left));
+  min-width: 46px;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.94);
+  color: #fff;
+  font-weight: 700;
+  font-size: 13px;
+  line-height: 1;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.2);
+  backdrop-filter: blur(12px);
+  cursor: pointer;
+}
+
+html[dir='rtl'] .aura-language-toggle {
+  left: auto;
+  right: max(16px, env(safe-area-inset-right));
+}
+
+@media (min-width: 1024px) {
+  html[dir='rtl'] aside.fixed.inset-y-0.left-0 {
+    left: auto !important;
+    right: 0 !important;
+  }
+
+  html[dir='rtl'] .lg\:pl-64 {
+    padding-left: 0 !important;
+    padding-right: 16rem !important;
+  }
+}
+
+html[dir='rtl'] .text-left {
+  text-align: right !important;
+}
+
+html[dir='rtl'] .ml-auto {
+  margin-left: 0 !important;
+  margin-right: auto !important;
+}
+
+html[dir='rtl'] .mr-auto {
+  margin-right: 0 !important;
+  margin-left: auto !important;
+}
+
+html[dir='rtl'] .ml-2 {
+  margin-left: 0 !important;
+  margin-right: .5rem !important;
+}
+
+html[dir='rtl'] .rounded-r-full {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  border-top-left-radius: 9999px;
+  border-bottom-left-radius: 9999px;
+}
+
+html[dir='rtl'] .absolute.left-0.top-1\/2 {
+  left: auto !important;
+  right: 0 !important;
+}
+
+@media (max-width: 1023px) {
+  html[dir='rtl'] div.lg\:hidden.fixed.inset-0.z-40.flex {
+    justify-content: flex-start;
+    direction: rtl;
+  }
+
+  html[dir='rtl'] button.absolute.top-4.right-4 {
+    right: auto !important;
+    left: 1rem !important;
+  }
+}
