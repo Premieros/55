@@ -6,8 +6,10 @@ export const AURAOS_SUPABASE_URL = 'https://limpprtlwtlvfwezkulq.supabase.co' as
  * Supabase project. The project ref appears in either the direct hostname
  * (db.<ref>.supabase.co) or the Supavisor username (postgres.<ref>).
  *
- * The returned URL also enforces sslmode=require without ever logging or
- * persisting the password.
+ * The returned URL enforces SSL. For Supavisor shared pooler hosts we also set
+ * uselibpqcompat=true because current node-postgres/pg-connection-string treats
+ * sslmode=require as verify-full unless libpq compatibility is explicitly
+ * requested; Supabase's standard Session Pooler URI expects libpq semantics.
  */
 export function normalizeAndAssertAuraDatabaseUrl(rawDatabaseUrl: string): string {
   let url: URL;
@@ -28,8 +30,9 @@ export function normalizeAndAssertAuraDatabaseUrl(rawDatabaseUrl: string): strin
     );
   }
 
-  if (!url.searchParams.has('sslmode')) {
-    url.searchParams.set('sslmode', 'require');
+  url.searchParams.set('sslmode', 'require');
+  if (url.hostname.endsWith('.pooler.supabase.com')) {
+    url.searchParams.set('uselibpqcompat', 'true');
   }
 
   return url.toString();
