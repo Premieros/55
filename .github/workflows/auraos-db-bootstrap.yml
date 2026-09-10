@@ -5,7 +5,7 @@ on:
   push:
     branches: ["development/auraos-preview"]
     paths:
-      - ".github/auraos-bootstrap-trigger"
+      - ".github/workflows/auraos-db-bootstrap.yml"
 
 permissions:
   contents: read
